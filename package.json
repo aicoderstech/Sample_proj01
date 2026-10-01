@@ -1,0 +1,30 @@
+{
+  "name": "mirrorfit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time virtual try-on in the browser: drop in any garment image and see it on yourself, live, with on-device body tracking.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "prepare-assets": "node scripts/copy-mediapipe.mjs",
+    "predev": "npm run prepare-assets",
+    "dev": "vite",
+    "prebuild": "npm run prepare-assets",
+    "build": "vite build",
+    "start": "node server/index.mjs",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run",
+    "test:e2e": "npm run build && playwright test"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "1.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "jsdom": "30.1.1",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  }
+}

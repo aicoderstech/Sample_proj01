@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Demo Store · Mirrorfit</title>
+    <meta name="description" content="A demo fashion store using the Mirrorfit try-on widget." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body class="store">
+    <div class="store-banner">
+      This is a demo store showing the Mirrorfit widget. <a href="./index.html#stores">Add it to your store →</a>
+    </div>
+    <header class="store-header">
+      <a class="store-brand" href="./demo-store.html">Atelier&nbsp;North</a>
+      <nav aria-label="Store">
+        <a href="./index.html">Mirrorfit home</a>
+        <span class="cart" aria-live="polite">Cart <span class="cart-count" id="cart-count">0</span></span>
+      </nav>
+    </header>
+
+    <main class="store-main">
+      <h1>New season</h1>
+      <p class="store-sub">Not sure how it looks? Press <strong>Try it on</strong> under any product.</p>
+      <div class="products" id="products"></div>
+    </main>
+
+    <div class="toast" id="toast" role="status" hidden></div>
+
+    <script type="module" src="/src/pages/store.js"></script>
+    <!-- The one line a store adds: -->
+    <script async src="./widget.js" data-mirrorfit></script>
+  </body>
+</html>

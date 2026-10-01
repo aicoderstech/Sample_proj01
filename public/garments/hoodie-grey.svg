@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="640" height="640">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b9bcc2"/>
+      <stop offset="1" stop-color="#8f939b"/>
+    </linearGradient>
+    <linearGradient id="shade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000" stop-opacity="0.14"/>
+      <stop offset="0.22" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.78" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.14"/>
+    </linearGradient>
+  </defs>
+  <!-- body + sleeves -->
+  <path d="M232,118 L165,150 L58,520 L100,532 L150,240 L155,560 L160,600 L480,600 L485,560 L490,240 L540,532 L582,520 L475,150 L408,118 Z" fill="url(#body)"/>
+  <path d="M232,118 L165,150 L58,520 L100,532 L150,240 L155,560 L160,600 L480,600 L485,560 L490,240 L540,532 L582,520 L475,150 L408,118 Z" fill="url(#shade)"/>
+  <!-- hood lying behind the neck -->
+  <path d="M232,118 C236,78 404,78 408,118 C380,150 260,150 232,118 Z" fill="#a4a8af"/>
+  <path d="M250,118 C268,148 372,148 390,118 C360,104 280,104 250,118 Z" fill="#6f737a"/>
+  <!-- drawstrings -->
+  <path d="M292,140 L286,250 M348,140 L354,250" stroke="#f2f2f2" stroke-width="6" stroke-linecap="round"/>
+  <!-- pocket -->
+  <path d="M215,420 L425,420 L455,530 L185,530 Z" fill="#000" fill-opacity="0.06" stroke="#7d8189" stroke-width="4"/>
+  <!-- ribbing -->
+  <path d="M158,562 L482,562" stroke="#7d8189" stroke-width="4"/>
+  <path d="M64,496 L104,508 M576,496 L536,508" stroke="#7d8189" stroke-width="4"/>
+</svg>

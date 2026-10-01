@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 600" width="700" height="600">
+  <!-- Shot like a real product photo: garment on a plain white background,
+       which the try-on studio removes automatically. -->
+  <rect width="700" height="600" fill="#ffffff"/>
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#aacdee"/>
+      <stop offset="1" stop-color="#86b2dc"/>
+    </linearGradient>
+  </defs>
+  <path d="M290,66 L225,95 L110,420 L170,442 L200,220 L198,520 Q350,536 502,520 L500,220 L530,442 L590,420 L475,95 L410,66 Z" fill="url(#body)"/>
+  <!-- collar -->
+  <path d="M290,66 L350,110 L410,66 L400,50 L300,50 Z" fill="#c4dcf2"/>
+  <path d="M290,66 L350,110 L318,140 L282,90 Z M410,66 L350,110 L382,140 L418,90 Z" fill="#b6d3ef" stroke="#7aa5cf" stroke-width="3"/>
+  <!-- placket + buttons -->
+  <path d="M350,110 L350,528" stroke="#7aa5cf" stroke-width="3"/>
+  <g fill="#f4f7fb" stroke="#7aa5cf" stroke-width="2">
+    <circle cx="350" cy="160" r="6"/><circle cx="350" cy="240" r="6"/><circle cx="350" cy="320" r="6"/>
+    <circle cx="350" cy="400" r="6"/><circle cx="350" cy="480" r="6"/>
+  </g>
+  <!-- pocket -->
+  <path d="M400,200 L460,200 L460,270 L430,282 L400,270 Z" fill="none" stroke="#7aa5cf" stroke-width="3"/>
+  <!-- cuffs -->
+  <path d="M116,402 L174,422 L170,442 L110,420 Z M584,402 L526,422 L530,442 L590,420 Z" fill="#9ec4e8" stroke="#7aa5cf" stroke-width="3"/>
+</svg>

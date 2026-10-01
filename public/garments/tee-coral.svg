@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 500" width="600" height="500">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff8a70"/>
+      <stop offset="1" stop-color="#e85a40"/>
+    </linearGradient>
+    <linearGradient id="side" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000" stop-opacity="0.14"/>
+      <stop offset="0.18" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.82" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.14"/>
+    </linearGradient>
+  </defs>
+  <path id="shape" d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z" fill="url(#body)"/>
+  <path d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z" fill="url(#side)"/>
+  <path d="M250,30 C262,80 338,80 350,30" fill="none" stroke="#c9472f" stroke-width="12" stroke-linecap="round"/>
+  <path d="M68,148 L122,226" stroke="#c9472f" stroke-width="3" stroke-dasharray="7 5" fill="none"/>
+  <path d="M532,148 L478,226" stroke="#c9472f" stroke-width="3" stroke-dasharray="7 5" fill="none"/>
+  <path d="M150,448 Q300,458 450,448" stroke="#c9472f" stroke-width="3" stroke-dasharray="7 5" fill="none"/>
+  <path d="M170,240 Q210,300 190,380 M430,240 Q392,300 410,380 M260,300 Q300,330 345,300" stroke="#b5432d" stroke-opacity="0.25" stroke-width="6" fill="none" stroke-linecap="round"/>
+</svg>

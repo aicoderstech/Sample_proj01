@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mirrorfit · Live Try-On</title>
+    <meta name="description" content="Real-time virtual try-on in your browser. Drag a garment from any online shop and see it on yourself, live, with fabric that moves with you." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body class="landing">
+    <header class="topbar">
+      <a class="logo" href="./index.html">
+        <svg class="logo-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#f0482a"/><path d="M11 8l-5 4 2.5 4 2.5-1.5V24h10v-9.5l2.5 1.5 2.5-4-5-4c-1 1.6-2.7 2.4-5 2.4S12 9.6 11 8z" fill="#fff"/></svg>
+        Mirrorfit
+      </a>
+      <nav aria-label="Main">
+        <a class="hide-sm" href="#how">How it works</a>
+        <a class="hide-sm" href="#stores">For stores</a>
+        <a class="hide-sm" href="#faq">FAQ</a>
+        <a href="./demo-store.html">Demo store</a>
+        <a class="btn primary small" href="./studio.html">Open studio</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Real-time virtual try-on</p>
+          <h1>See it on you <span class="accent">before</span> you buy it.</h1>
+          <p class="lead">Drag a garment from any online shop and watch it move with you, live in your camera. No app to install, no uploads: it all runs in your browser.</p>
+          <div class="hero-cta">
+            <a class="btn primary" href="./studio.html">Try it on now</a>
+            <a class="btn" href="#stores">Add it to your store</a>
+          </div>
+          <ul class="hero-points">
+            <li>Live body tracking</li>
+            <li>Any shop, any image</li>
+            <li>Private by design</li>
+          </ul>
+        </div>
+        <figure class="hero-visual">
+          <div class="hero-screen">
+            <canvas id="hero-canvas" width="600" height="800" aria-label="Animated preview of a garment fitted to a moving figure"></canvas>
+            <span class="live-chip">LIVE</span>
+          </div>
+          <figcaption id="hero-caption">Now wearing: <strong>Coral Crew Tee</strong></figcaption>
+        </figure>
+      </section>
+
+      <section class="section" id="how">
+        <h2>Three steps. A few seconds.</h2>
+        <ol class="steps">
+          <li>
+            <span class="step-num">1</span>
+            <h3>Pick any garment</h3>
+            <p>Drag a product photo from any shopping site, paste it, or choose one of ours. Plain backgrounds are removed automatically.</p>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <h3>Step in front of your camera</h3>
+            <p>Body tracking finds your shoulders, arms and hips on every camera frame, or on a photo you upload.</p>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <h3>See it move with you</h3>
+            <p>The garment is fitted to your body, sleeves follow your arms and the hem sways as you move. Snap a picture to share.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section features" aria-label="Features">
+        <article>
+          <h3>Real-time fit</h3>
+          <p>A mesh warp fits the garment to your body every frame, matched to your scene's lighting.</p>
+        </article>
+        <article>
+          <h3>Drag from anywhere</h3>
+          <p>Works with product images from any store. A built-in proxy handles shops that block image access.</p>
+        </article>
+        <article>
+          <h3>Fabric that moves</h3>
+          <p>Spring physics lets the hem lag and swing naturally when you turn or step.</p>
+        </article>
+        <article>
+          <h3>Private by design</h3>
+          <p>Tracking runs on-device with WebAssembly. Your camera feed never leaves your browser.</p>
+        </article>
+        <article>
+          <h3>Photo mode</h3>
+          <p>No camera? Upload a full-length photo and try outfits on that instead.</p>
+        </article>
+        <article>
+          <h3>Snapshots</h3>
+          <p>Capture a look in one tap and download it to compare outfits or share with friends.</p>
+        </article>
+      </section>
+
+      <section class="section stores" id="stores">
+        <div class="stores-copy">
+          <p class="eyebrow">For online stores</p>
+          <h2>Add a “Try it on” button with one line of code.</h2>
+          <p>Shoppers who can see a garment on themselves buy with more confidence and return less. Add the widget to any site, including Shopify themes, with no build step.</p>
+          <ul class="checks">
+            <li>One async script tag, under 10&nbsp;KB</li>
+            <li>Adds a button to every image marked <code>data-tryon</code></li>
+            <li>Opens the try-on studio in an overlay on your page</li>
+            <li>Fires a <code>mirrorfit:add-to-cart</code> event you can hook into</li>
+          </ul>
+          <a class="btn primary" href="./demo-store.html">See the demo store</a>
+        </div>
+        <div class="code-card">
+          <div class="code-head">
+            <span>product-page.html</span>
+            <button class="btn small ghost" id="copy-snippet" type="button">Copy</button>
+          </div>
+          <pre><code id="snippet"></code></pre>
+          <p class="code-note"><strong>Shopify:</strong> paste the script into <code>theme.liquid</code> before <code>&lt;/body&gt;</code> and add <code>data-tryon</code> to the product image in your product template.</p>
+        </div>
+      </section>
+
+      <section class="section faq" id="faq">
+        <h2>Questions</h2>
+        <details>
+          <summary>How realistic is the fit?</summary>
+          <p>Mirrorfit tracks 33 body landmarks and warps the garment photo onto your shoulders, arms and hips, with physics for the hem. It is a 2D fit, not a 3D simulation, so it gives a quick, convincing sense of colour, length and proportion rather than an exact size recommendation.</p>
+        </details>
+        <details>
+          <summary>Is my camera video uploaded anywhere?</summary>
+          <p>No. Body tracking runs entirely in your browser using WebAssembly. Only garment images you load from other websites pass through our image proxy, and only when the shop blocks direct access.</p>
+        </details>
+        <details>
+          <summary>Which garment images work best?</summary>
+          <p>Front-facing product photos of a single item on a plain white or light background, or PNGs with a transparent background. Tops, jackets, dresses and skirts work best.</p>
+        </details>
+        <details>
+          <summary>Does it work on phones?</summary>
+          <p>Yes. It works in current versions of Chrome, Safari, Edge and Firefox on desktop and mobile, as long as the page is served over HTTPS.</p>
+        </details>
+        <details>
+          <summary>Can I host it myself?</summary>
+          <p>Yes. Run <code>npm run build</code> and <code>npm start</code>, or deploy the <code>dist/</code> folder to any static host (the image proxy needs the Node server).</p>
+        </details>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>© Mirrorfit</span>
+      <nav aria-label="Footer">
+        <a href="./studio.html">Studio</a>
+        <a href="./demo-store.html">Demo store</a>
+        <a href="#stores">For stores</a>
+      </nav>
+    </footer>
+
+    <script type="module" src="/src/pages/landing.js"></script>
+  </body>
+</html>

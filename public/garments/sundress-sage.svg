@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 680" width="600" height="680">
+  <defs>
+    <pattern id="floral" patternUnits="userSpaceOnUse" width="46" height="46">
+      <rect width="46" height="46" fill="#8fb996"/>
+      <g fill="#fdfbf5">
+        <circle cx="10" cy="10" r="3.2"/><circle cx="15" cy="8" r="3.2"/><circle cx="14" cy="14" r="3.2"/><circle cx="8" cy="15" r="3.2"/>
+        <circle cx="33" cy="33" r="3.2"/><circle cx="38" cy="31" r="3.2"/><circle cx="37" cy="37" r="3.2"/><circle cx="31" cy="38" r="3.2"/>
+      </g>
+      <circle cx="11.8" cy="11.8" r="2.2" fill="#f5c451"/>
+      <circle cx="34.8" cy="34.8" r="2.2" fill="#f5c451"/>
+    </pattern>
+    <linearGradient id="shade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000" stop-opacity="0.12"/>
+      <stop offset="0.3" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.7" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.12"/>
+    </linearGradient>
+  </defs>
+  <!-- straps -->
+  <path d="M228,20 L246,20 L250,112 L232,114 Z M354,20 L372,20 L368,114 L350,112 Z" fill="#6f9b77"/>
+  <!-- dress -->
+  <path d="M162,118 Q231,96 300,128 Q369,96 438,118 L438,165 L414,250 L560,640 Q300,672 40,640 L186,250 L162,165 Z" fill="url(#floral)"/>
+  <path d="M162,118 Q231,96 300,128 Q369,96 438,118 L438,165 L414,250 L560,640 Q300,672 40,640 L186,250 L162,165 Z" fill="url(#shade)"/>
+  <!-- waist sash -->
+  <path d="M184,240 L416,240 L412,262 L188,262 Z" fill="#5e8a66"/>
+  <path d="M220,300 Q205,450 150,600 M300,300 L300,640 M380,300 Q395,450 450,600" stroke="#4d7555" stroke-opacity="0.25" stroke-width="5" fill="none"/>
+</svg>

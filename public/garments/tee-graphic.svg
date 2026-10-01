@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 500" width="600" height="500">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2d33"/>
+      <stop offset="1" stop-color="#16171b"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd166"/>
+      <stop offset="0.55" stop-color="#ff7b54"/>
+      <stop offset="1" stop-color="#d1495b"/>
+    </linearGradient>
+    <clipPath id="sunClip"><circle cx="300" cy="230" r="78"/></clipPath>
+  </defs>
+  <path d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z" fill="url(#body)"/>
+  <path d="M250,30 C262,80 338,80 350,30" fill="none" stroke="#3b3e46" stroke-width="12" stroke-linecap="round"/>
+  <g clip-path="url(#sunClip)">
+    <rect x="200" y="150" width="200" height="170" fill="url(#sun)"/>
+    <rect x="200" y="250" width="200" height="9" fill="#16171b"/>
+    <rect x="200" y="268" width="200" height="8" fill="#16171b"/>
+    <rect x="200" y="285" width="200" height="7" fill="#16171b"/>
+    <rect x="200" y="300" width="200" height="6" fill="#16171b"/>
+  </g>
+  <text x="300" y="352" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="700" letter-spacing="6" fill="#f4f1ea">GOLDEN HOUR</text>
+  <path d="M68,148 L122,226 M532,148 L478,226 M150,448 Q300,458 450,448" stroke="#3b3e46" stroke-width="3" stroke-dasharray="7 5" fill="none"/>
+</svg>

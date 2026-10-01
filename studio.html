@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mirrorfit Studio</title>
+    <meta name="description" content="Try clothes on live with your camera or a photo. Drop in any garment image from any shop." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body class="studio">
+    <header class="topbar">
+      <a class="logo" href="./index.html">
+        <svg class="logo-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#f0482a"/><path d="M11 8l-5 4 2.5 4 2.5-1.5V24h10v-9.5l2.5 1.5 2.5-4-5-4c-1 1.6-2.7 2.4-5 2.4S12 9.6 11 8z" fill="#fff"/></svg>
+        Mirrorfit
+      </a>
+      <nav aria-label="Main">
+        <a href="./demo-store.html">Demo store</a>
+        <a href="./index.html#stores">For stores</a>
+      </nav>
+    </header>
+
+    <main class="studio-layout">
+      <section class="stage-wrap" aria-label="Try-on preview">
+        <div class="stage" id="stage">
+          <canvas id="view" aria-label="Live try-on preview"></canvas>
+          <video id="camera" playsinline muted hidden></video>
+
+          <div class="stage-empty" id="empty-state">
+            <h1>See it on you</h1>
+            <p>Start your camera, or upload a photo where your shoulders and hips are visible. Then pick a garment, or drop one in from any shop.</p>
+            <div class="row">
+              <button class="btn primary" id="start-camera" type="button">Start camera</button>
+              <label class="btn" for="photo-input">Upload a photo</label>
+            </div>
+            <p class="fine">Body tracking runs on your device. Your camera feed never leaves your browser.</p>
+          </div>
+
+          <div class="stage-status" id="status" role="status" aria-live="polite" hidden></div>
+          <div class="drop-overlay" id="drop-overlay" hidden>Drop to try it on</div>
+
+          <div class="stage-toolbar" id="toolbar" hidden>
+            <button class="icon-btn shutter" id="snapshot" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+              Snapshot
+            </button>
+            <button class="icon-btn" id="toggle-mirror" type="button" aria-pressed="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v18M8 7l-4 5 4 5M16 7l4 5-4 5"/></svg>
+              Mirror
+            </button>
+            <button class="icon-btn" id="switch-source" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h11l-3-3M20 17H9l3 3"/></svg>
+              <span>Change source</span>
+            </button>
+          </div>
+        </div>
+        <div class="snapshots" id="snapshots" aria-label="Snapshots"></div>
+      </section>
+
+      <aside class="panel" aria-label="Controls">
+        <section class="panel-section">
+          <h2>Garment</h2>
+          <div class="garment-grid" id="garment-grid"></div>
+          <div class="dropzone" id="dropzone">
+            <p><strong>Drag an image here</strong> from any shopping site or your files, or paste one with Ctrl/⌘+V.</p>
+            <label class="btn small" for="garment-input">Choose image</label>
+            <input type="file" id="garment-input" accept="image/*" hidden />
+          </div>
+          <form class="url-form" id="url-form">
+            <label class="visually-hidden" for="garment-url">Image URL</label>
+            <input type="url" id="garment-url" placeholder="…or paste an image URL" required />
+            <button class="btn small" type="submit">Load</button>
+          </form>
+          <p class="garment-info" id="garment-info" aria-live="polite"></p>
+        </section>
+
+        <section class="panel-section">
+          <h2>Fit</h2>
+          <label class="field">Type
+            <select id="garment-type">
+              <option value="auto">Auto-detect</option>
+              <option value="top">Top / jacket</option>
+              <option value="dress">Dress</option>
+              <option value="bottom">Skirt / trousers</option>
+            </select>
+          </label>
+          <label class="field">Size <input type="range" id="fit-size" min="0.7" max="1.5" step="0.01" value="1" /><output for="fit-size">100%</output></label>
+          <label class="field">Length <input type="range" id="fit-length" min="0.7" max="1.5" step="0.01" value="1" /><output for="fit-length">100%</output></label>
+          <label class="field">Position <input type="range" id="fit-offset" min="-0.3" max="0.3" step="0.01" value="0" /><output for="fit-offset">0</output></label>
+          <label class="switch"><input type="checkbox" id="opt-physics" checked /> Fabric sway</label>
+          <label class="switch"><input type="checkbox" id="opt-arms" checked /> Sleeves follow arms</label>
+          <label class="switch"><input type="checkbox" id="opt-bg" checked /> Remove background</label>
+          <label class="field">Tolerance <input type="range" id="opt-tolerance" min="10" max="120" step="1" value="42" /><output for="opt-tolerance">42</output></label>
+          <label class="switch"><input type="checkbox" id="opt-skeleton" /> Show body tracking</label>
+          <button class="btn small ghost" id="reset-fit" type="button">Reset fit</button>
+        </section>
+
+        <section class="panel-section embed-only" id="cart-section">
+          <button class="btn primary block" id="add-to-cart" type="button">Add to cart</button>
+        </section>
+      </aside>
+    </main>
+
+    <input type="file" id="photo-input" accept="image/*" hidden />
+    <script type="module" src="/src/pages/studio.js"></script>
+  </body>
+</html>

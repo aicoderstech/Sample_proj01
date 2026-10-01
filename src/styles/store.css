@@ -1,0 +1,127 @@
+.store-banner {
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 0.88rem;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.store-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px clamp(16px, 4vw, 40px);
+  border-bottom: 1px solid var(--border);
+}
+
+.store-brand {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.5rem;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.store-header nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-size: 0.92rem;
+}
+
+.store-header nav a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.cart {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.cart-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.8rem;
+}
+
+.store-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 36px clamp(16px, 4vw, 40px) 64px;
+}
+
+.store-main h1 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 400;
+  font-size: clamp(2rem, 5vw, 3rem);
+}
+
+.store-sub {
+  color: var(--muted);
+  margin-bottom: 32px;
+}
+
+.products {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 28px 20px;
+}
+
+.product-media {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 18px 16px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.product-media img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.product-body {
+  padding: 12px 4px 0;
+}
+
+.product-body h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 4px;
+  letter-spacing: 0;
+}
+
+.price {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  z-index: 10;
+}
+
+.toast[hidden] {
+  display: none;
+}

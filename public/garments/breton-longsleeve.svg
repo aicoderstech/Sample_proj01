@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 600" width="640" height="600">
+  <defs>
+    <pattern id="stripes" patternUnits="userSpaceOnUse" width="40" height="34">
+      <rect width="40" height="34" fill="#f6f1e7"/>
+      <rect y="14" width="40" height="11" fill="#1f3a68"/>
+    </pattern>
+    <linearGradient id="shade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000" stop-opacity="0.12"/>
+      <stop offset="0.25" stop-color="#000" stop-opacity="0"/>
+      <stop offset="0.75" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.12"/>
+    </linearGradient>
+  </defs>
+  <path d="M230,50 Q320,82 410,50 L470,80 L600,330 L550,350 L480,190 L478,560 Q320,568 162,560 L160,190 L90,350 L40,330 L170,80 Z" fill="url(#stripes)"/>
+  <path d="M230,50 Q320,82 410,50 L470,80 L600,330 L550,350 L480,190 L478,560 Q320,568 162,560 L160,190 L90,350 L40,330 L170,80 Z" fill="url(#shade)"/>
+  <path d="M230,50 Q320,82 410,50" fill="none" stroke="#1f3a68" stroke-width="8" stroke-linecap="round"/>
+  <path d="M40,330 L90,350 M600,330 L550,350" stroke="#1f3a68" stroke-width="10" fill="none"/>
+</svg>
