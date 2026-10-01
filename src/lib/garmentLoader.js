@@ -1,6 +1,7 @@
 // Loads a garment image (URL, File, sample) and prepares it for fitting:
 // background removal, cropping and anchor analysis.
 import { analyzeGarment, defaultAnchors, deriveAnchors, guessGarmentType, removeBackground } from '../core/garment.js';
+import { buildGarmentRig } from '../core/garmentRig.js';
 
 const MAX_PROCESS_SIZE = 1024;
 const MAX_TEXTURE_SIZE = 768;
@@ -71,6 +72,46 @@ function drawScaled(source, maxSize) {
 }
 
 /**
+ * One texture per garment part (torso, each sleeve / leg), so each part can
+ * be warped and layered on its own. Each part keeps a 2px skirt of its
+ * neighbours' pixels to hide hairline seams where parts meet.
+ */
+function splitParts(texture, parts) {
+  const { width, height, data } = texture;
+  const ids = [...new Set(parts)].filter(Boolean);
+  const out = {};
+  for (const id of ids) {
+    const own = new Uint8Array(width * height);
+    for (let i = 0; i < own.length; i++) if (parts[i] === id) own[i] = 1;
+    // Dilate by 2px into other parts.
+    const grown = Uint8Array.from(own);
+    for (let pass = 0; pass < 2; pass++) {
+      const prev = Uint8Array.from(grown);
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const i = y * width + x;
+          if (!prev[i] && parts[i] && (prev[i - 1] || prev[i + 1] || prev[i - width] || prev[i + width])) grown[i] = 1;
+        }
+      }
+    }
+    const img = new ImageData(width, height);
+    for (let i = 0; i < grown.length; i++) {
+      if (!grown[i]) continue;
+      img.data[i * 4] = data[i * 4];
+      img.data[i * 4 + 1] = data[i * 4 + 1];
+      img.data[i * 4 + 2] = data[i * 4 + 2];
+      img.data[i * 4 + 3] = data[i * 4 + 3];
+    }
+    const c = document.createElement('canvas');
+    c.width = width;
+    c.height = height;
+    c.getContext('2d').putImageData(img, 0, 0);
+    out[id] = c;
+  }
+  return out;
+}
+
+/**
  * @param {CanvasImageSource} source
  * @param {{removeBg?: boolean, tolerance?: number, type?: 'auto'|'top'|'dress'|'bottom'}} options
  * @returns {{canvas, rect, anchors, type, guessedType, backgroundRemoved, readable}}
@@ -117,15 +158,19 @@ export function prepareGarment(source, { removeBg = true, tolerance = 42, type =
   octx.imageSmoothingQuality = 'high';
   octx.drawImage(full, bx, by, bw, bh, 0, 0, out.width, out.height);
 
-  const analysis = analyzeGarment(octx.getImageData(0, 0, out.width, out.height));
+  const texture = octx.getImageData(0, 0, out.width, out.height);
+  const analysis = analyzeGarment(texture);
   if (!analysis) throw new Error('No garment found in that image.');
   const guessedType = guessGarmentType(analysis);
   const finalType = type === 'auto' ? guessedType : type;
+  const rig = buildGarmentRig(analysis, finalType);
   return {
     canvas: out,
     rect: analysis.bbox,
     anchors: deriveAnchors(analysis, finalType),
     analysis,
+    rig,
+    partCanvases: rig ? splitParts(texture, rig.parts) : null,
     type: finalType,
     guessedType,
     backgroundRemoved: processed.removed,

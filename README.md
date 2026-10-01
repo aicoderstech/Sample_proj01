@@ -48,16 +48,26 @@ served over **HTTPS**.
   - Shops that block cross-origin image access go through a same-origin image
     proxy. If that isn't available, the garment is still shown, and the studio
     explains what's limited.
-- **Realistic fit.**
-  - The garment is warped onto shoulders, torso and hips with a textured
-    triangle mesh (WebGL, with a 2D-canvas fallback).
-  - Sleeves rotate to follow the upper arms, and the mesh is guaranteed never to
-    fold.
-  - Spring physics make the hem lag and sway when you move.
+- **Measured fit (fit engine v2).**
+  - The pose model also returns a person segmentation mask. The engine measures
+    the wearer's real outline from it: shoulder edges, chest, waist and hips,
+    neck, armpits, and the thickness of each arm and leg.
+  - Each garment is "rigged" from its silhouette: collar, shoulder seams,
+    armpits, side seams, hem, and separate sleeves and trouser legs.
+  - A thin-plate-spline warp pins the garment's construction points onto the
+    body. Sleeves and trouser legs follow the real arms and legs, bending at
+    the elbows and knees. Forearms and hands are drawn in front of the garment.
+  - Fabric hugs the body where it is wider than the garment and keeps its own
+    shape where the garment is wider (a T-shirt hanging straight, a skirt
+    flaring out).
+  - Accuracy is measured: see [Fit accuracy](#fit-accuracy).
+  - Rendered as textured triangle meshes (WebGL, with a 2D-canvas fallback).
+    Spring physics make the hem lag and sway when you move.
   - A One Euro filter steadies tracking jitter, and the garment brightness
     follows the scene's lighting.
 - **Fit controls.** Size, length, position, garment type, sway and sleeve
-  following, plus a body-tracking overlay for debugging.
+  following, an optional high-accuracy tracking model for live video, and a
+  fit-guides overlay that shows the measured body and the pinned points.
 - **Photo mode** for people without a camera, and **snapshots** you can
   download.
 - Responsive layout with light and dark themes.
@@ -103,24 +113,29 @@ are picked up automatically.
 ## How it works
 
 ```
-camera / photo ──► MediaPipe Pose (33 landmarks) ──► One Euro smoothing
-                                                     │
-garment image ──► background removal ──► silhouette analysis
-                  (border flood fill)    (torso width, shoulder line,
-                                          sleeve pivots and angles, type)
+camera / photo ──► MediaPipe Pose ──► 33 landmarks + person mask
                                                      │
                                                      ▼
-                  body frame (shoulders, hips, torso axis, upper arms)
+                  body model (bodyModel.js): outline profile, shoulder edges,
+                  neck, armpits, waist, hips, arm and leg chains + radii,
+                  smoothed over frames
+                                                     │
+garment image ──► background removal ──► garment rig (garmentRig.js):
+                  (border flood fill)    collar, shoulders, armpits, side
+                                         seams, hem, sleeve and leg parts
                                                      │
                                                      ▼
-                  garment → body mapping (+ sleeve rotation, no folds)
+                  fit (fit2.js): thin-plate spline for the torso,
+                  spine warps for sleeves / trouser legs
                                                      │
-                  16×22 mesh ──► spring "sway" ──► WebGL textured mesh ──► composite
+                  per-part meshes ──► spring "sway" ──► WebGL ──► forearms and
+                                                               hands composited
+                                                               back on top
 ```
 
 | Directory | Contents |
 | --- | --- |
-| `src/core/` | Framework-free engine: garment analysis, fitting, physics, filters, mesh rendering |
+| `src/core/` | Framework-free engine: body model, garment rig, fitting (TPS / spine warps), fit metrics, physics, filters, mesh rendering |
 | `src/lib/` | Browser glue: camera, pose tracker, garment loader, drag-and-drop parsing |
 | `src/pages/` | Page scripts for the landing page, studio and demo store |
 | `public/` | The store widget, sample garments and the pose model |
@@ -135,6 +150,34 @@ images:
 - **Content:** raster image types only (no SVG), with a size limit and a
   timeout.
 
+## Fit accuracy
+
+`npm run bench` fits every catalog garment to synthetic people whose exact
+shape is known. That is 3 builds × 13 poses (arms down, A-pose, T-pose, raised,
+crossed, hands on hips, leaning, wide stance, lunge, webcam framing). It then
+scores each fit with geometric checks, measured in shoulder widths (sw):
+
+| Check | Passes when |
+| --- | --- |
+| Shoulder seam | the seam is within 4% sw of the true shoulder edge |
+| Neck centring | the neckline is within 2.5% sw of the body's midline |
+| Chest / waistband contact | the fabric touches the body, with at most 10% sw ease |
+| Waist / hip cover | the fabric covers the body, with at most 20–25% sw drape |
+| Sleeve on arm / leg on leg | the sleeve or trouser-leg centre line is within 4–5% sw of the limb |
+| Torso coverage | at least 99% of the torso the garment should cover is covered |
+| Spill | at most 2% of the garment hangs in the air |
+
+| Tracking | Original engine | Fit engine v2 |
+| --- | --- | --- |
+| Exact landmarks and mask | 43.8% of checks | **100%** (4,322 / 4,322) |
+| Webcam-level noise (±2% landmarks, ragged mask edge) | 43.4% | **98.7%** |
+| Heavy noise (±4% landmarks) | 41.5% | 88.0% |
+
+The unit tests require at least 99.9% with exact tracking and 98% with
+webcam-level noise. How well a real try-on fits depends on the pose model's
+accuracy on that image. Good light, the whole body in frame and fitted clothes
+underneath all help.
+
 ## Tests
 
 ```bash
@@ -145,8 +188,10 @@ npm run test:e2e     # builds, then Playwright against the production server
 
 - **Unit tests** cover:
   - garment analysis and type detection
-  - the fitting math, including a property test that the mesh never folds
-    across 300 body and arm poses
+  - the fit engine: thin-plate spline, spine warp, garment rig, body model
+    and the fit benchmark (see above)
+  - the original fitting math, including a property test that the mesh never
+    folds across 300 body and arm poses
   - physics, filters and mesh affine maps
   - drag-and-drop parsing
   - the widget, in jsdom
@@ -168,11 +213,12 @@ be downloaded, the tests that need it are skipped.
 
 ## Limitations
 
-This is a 2D fit driven by body landmarks, not a generative model, so:
+This is a measured 2D fit, not a generative model, so:
 
-- arms crossing in front of the body are covered by the garment;
-- trousers follow the hips but not each leg separately;
-- very steeply raised arms are followed only partly;
+- the garment is not re-shaded for folds and wrinkles, and it has no back or
+  inside (a turned body still shows the garment's front);
+- the fit is only as good as the pose model's landmarks and mask. Loose,
+  bulky clothing underneath makes the body look larger;
 - it gives a convincing sense of colour, length and proportion, not a size
   recommendation.
 
@@ -182,6 +228,7 @@ have a plain background.
 ## Credits
 
 - Body tracking: [MediaPipe Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
-  (`@mediapipe/tasks-vision`). `public/models/pose_landmarker_lite.task` is
-  Google's model, distributed under the Apache License 2.0.
+  (`@mediapipe/tasks-vision`). `public/models/pose_landmarker_lite.task` and
+  `pose_landmarker_full.task` are Google's models, distributed under the
+  Apache License 2.0.
 - The sample garments are original SVG illustrations made for this project.

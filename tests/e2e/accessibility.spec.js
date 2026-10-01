@@ -11,7 +11,7 @@ for (const url of ['/', '/studio.html', '/demo-store.html']) {
       const context = await browser.newContext({ baseURL, colorScheme });
       const page = await context.newPage();
       await page.goto(url);
-      if (url === '/demo-store.html') await expect(page.locator('.mf-tryon-btn')).toHaveCount(7);
+      if (url === '/demo-store.html') await expect(page.locator('.mf-tryon-btn')).toHaveCount(8);
       await page.addScriptTag({ content: AXE });
       const violations = await page.evaluate(async () =>
         (await window.axe.run(document, { resultTypes: ['violations'] })).violations.map(

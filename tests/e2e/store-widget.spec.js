@@ -7,7 +7,7 @@ test.describe('demo store · try-on widget', () => {
     const errors = trackErrors(page);
     await page.goto('/demo-store.html');
     const buttons = page.locator('.mf-tryon-btn');
-    await expect(buttons).toHaveCount(7);
+    await expect(buttons).toHaveCount(8);
     await expect(buttons.first()).toHaveText('Try it on');
 
     await buttons.first().click();

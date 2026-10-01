@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 760" width="600" height="760">
+  <defs>
+    <linearGradient id="denim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a5a8c"/>
+      <stop offset="1" stop-color="#2b4470"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <path d="M185,20 L415,20 L418,60 L432,200 L436,740 L338,740 L306,262 Q300,252 294,262 L262,740 L164,740 L168,200 L182,60 Z" fill="url(#denim)"/>
+  <path d="M185,300 L255,300 L250,700 L170,700 Z M345,300 L415,300 L430,700 L350,700 Z" fill="url(#fade)"/>
+  <path d="M182,60 L418,60" stroke="#1f3355" stroke-width="3"/>
+  <g stroke="#d9a441" stroke-width="2" stroke-dasharray="6 4" fill="none">
+    <path d="M186,56 L414,56"/>
+    <path d="M300,62 L300,220 Q300,236 286,238"/>
+    <path d="M190,70 Q235,95 250,140"/>
+    <path d="M410,70 Q365,95 350,140"/>
+    <path d="M168,736 L262,736 M338,736 L436,736"/>
+  </g>
+  <g fill="#1f3355">
+    <rect x="205" y="16" width="10" height="46" rx="2"/><rect x="295" y="16" width="10" height="46" rx="2"/><rect x="385" y="16" width="10" height="46" rx="2"/>
+  </g>
+  <circle cx="300" cy="40" r="7" fill="#c9a24a"/>
+</svg>

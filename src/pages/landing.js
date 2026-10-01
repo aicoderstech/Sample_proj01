@@ -1,9 +1,8 @@
 import '../styles/base.css';
 import '../styles/landing.css';
-import { toPixels } from '../core/body.js';
 import { DEFAULT_ADJUST } from '../core/fit.js';
-import { drawMannequin } from '../core/mannequin.js';
-import { mockPose } from '../core/mockPose.js';
+import { drawSyntheticBody } from '../core/mannequin.js';
+import { mockBodyFrame } from '../core/mockBody.js';
 import { TryOnRenderer } from '../core/renderer.js';
 import { CATALOG, catalogUrl } from '../lib/catalog.js';
 import { loadImage, prepareGarment } from '../lib/garmentLoader.js';
@@ -53,7 +52,7 @@ let switchedAt = 0;
 let visible = true;
 let last = 0;
 
-function background(ctx, pts) {
+function background(ctx, body) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#f6e3d6');
   g.addColorStop(1, '#e9cdbb');
@@ -63,7 +62,7 @@ function background(ctx, pts) {
   ctx.beginPath();
   ctx.ellipse(W / 2, H * 0.965, W * 0.22, H * 0.018, 0, 0, Math.PI * 2);
   ctx.fill();
-  drawMannequin(ctx, pts);
+  drawSyntheticBody(ctx, body.truth);
 }
 
 function frame(now) {
@@ -78,15 +77,17 @@ function frame(now) {
     renderer.resetMotion();
     caption.innerHTML = `Now wearing: <strong>${garments[current].name}</strong>`;
   }
-  const pts = toPixels(mockPose(reducedMotion ? 0.6 : t, { aspect: W / H, motion: reducedMotion ? 0 : 1 }), W, H);
+  const body = mockBodyFrame(reducedMotion ? 0.6 : t, { width: W, height: H, motion: reducedMotion ? 0 : 1, maskScale: 0.35 });
   renderer.render({
-    drawBackground: (ctx) => background(ctx, pts),
+    drawBackground: (ctx) => background(ctx, body),
     mirror: false,
-    points: pts,
+    points: body.points,
+    mask: body.mask,
     garment: garments[current],
     adjust: DEFAULT_ADJUST,
     dt,
     physics: !reducedMotion,
+    temporal: false,
   });
 }
 

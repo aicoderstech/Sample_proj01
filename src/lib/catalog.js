@@ -7,6 +7,7 @@ export const CATALOG = [
   { id: 'oxford-shirt', name: 'Oxford Shirt', type: 'top', price: 49, file: 'garments/oxford-shirt.svg' },
   { id: 'sundress-sage', name: 'Sage Sundress', type: 'dress', price: 68, file: 'garments/sundress-sage.svg' },
   { id: 'pleated-skirt', name: 'Pleated Midi Skirt', type: 'bottom', price: 52, file: 'garments/pleated-skirt.svg' },
+  { id: 'jeans-indigo', name: 'Indigo Straight Jeans', type: 'bottom', price: 79, file: 'garments/jeans-indigo.svg' },
 ];
 
 export const catalogUrl = (item) => new URL(item.file, document.baseURI).href;

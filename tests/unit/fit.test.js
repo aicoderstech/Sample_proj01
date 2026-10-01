@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { computeBodyFrame, toPixels } from '../../src/core/body.js';
 import { armAngle, buildGrid, createGarmentMapper, TUNING } from '../../src/core/fit.js';
 import { analyzeGarment, deriveAnchors, removeBackground } from '../../src/core/garment.js';
-import { mockPose } from '../../src/core/mockPose.js';
 import { makePose, rasterize, TEE } from './shapes.js';
 
 const teeAnalysis = analyzeGarment(removeBackground(rasterize(TEE)));
@@ -154,22 +153,5 @@ describe('buildGrid', () => {
     expect([points[0], points[1]]).toEqual([0, 1]);
     expect([points[16], points[17]]).toEqual([20, 11]);
     expect(Array.from(weights)).toEqual([0, 0, 0, 0, 0, 0, 1, 1, 1]);
-  });
-});
-
-describe('mockPose', () => {
-  it('produces a valid, visible standing pose', () => {
-    const lm = mockPose(1.3, { aspect: 0.75 });
-    expect(lm).toHaveLength(33);
-    const f = computeBodyFrame(toPixels(lm, 600, 800));
-    expect(f).not.toBeNull();
-    expect(f.hipsEstimated).toBe(false);
-    expect(f.shoulderDir.x).toBeGreaterThan(0.9);
-  });
-
-  it('marks landmarks outside the frame as not visible', () => {
-    const lm = mockPose(0, { aspect: 4 / 3, zoom: 1.45, offsetY: 0.2 });
-    expect(lm[27].visibility).toBeLessThan(0.5); // ankles out of frame
-    expect(lm[11].visibility).toBeGreaterThan(0.5);
   });
 });

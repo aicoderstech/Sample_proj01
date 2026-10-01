@@ -16,7 +16,9 @@
     "start": "node server/index.mjs",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "npm run build && playwright test",
+    "bench": "node scripts/fit-bench.mjs",
+    "fixtures:garments": "node scripts/render-garment-fixtures.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1"

@@ -1,6 +1,7 @@
-// WebGL textured-mesh renderer for the garment layer: one draw call, no
-// seams between triangles. TryOnRenderer falls back to the 2D-canvas mesh
-// when WebGL is unavailable or the garment image is cross-origin (tainted).
+// WebGL textured-mesh renderer for garment layers: one draw call per garment
+// part, no seams between triangles. TryOnRenderer falls back to the
+// 2D-canvas mesh when WebGL is unavailable or the garment image is
+// cross-origin (tainted).
 const VERTEX = `
 attribute vec2 aPos;
 attribute vec2 aUv;
@@ -19,6 +20,8 @@ uniform sampler2D uTex;
 void main() {
   gl_FragColor = texture2D(uTex, vUv);
 }`;
+
+const MAX_TEXTURES = 16;
 
 function compile(gl, type, source) {
   const shader = gl.createShader(type);
@@ -65,29 +68,35 @@ export class GLMeshRenderer {
     this.posBuffer = gl.createBuffer();
     this.uvBuffer = gl.createBuffer();
     this.indexBuffer = gl.createBuffer();
-    this.texture = gl.createTexture();
-    this.textureSource = null;
-    this.gridKey = '';
-    this.indexCount = 0;
+    this.textures = new Map(); // image -> WebGLTexture (insertion order = age)
+    this.grids = new Map(); // key -> { uv, idx }
   }
 
-  setTexture(source) {
-    if (this.textureSource === source) return;
+  texture(image) {
     const { gl } = this;
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    let tex = this.textures.get(image);
+    if (tex) return tex;
+    tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    this.textureSource = source;
+    this.textures.set(image, tex);
+    if (this.textures.size > MAX_TEXTURES) {
+      const [oldest, oldTex] = this.textures.entries().next().value;
+      gl.deleteTexture(oldTex);
+      this.textures.delete(oldest);
+    }
+    return tex;
   }
 
-  setGrid(cols, rows, rect, texWidth, texHeight) {
+  grid(cols, rows, rect, texWidth, texHeight) {
     const key = `${cols}x${rows}:${rect.x},${rect.y},${rect.w},${rect.h}:${texWidth}x${texHeight}`;
-    if (key === this.gridKey) return;
-    const { gl } = this;
+    let g = this.grids.get(key);
+    if (g) return g;
     const uv = new Float32Array((cols + 1) * (rows + 1) * 2);
     let k = 0;
     for (let j = 0; j <= rows; j++) {
@@ -108,16 +117,19 @@ export class GLMeshRenderer {
         k += 6;
       }
     }
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.uvBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
-    this.indexCount = idx.length;
-    this.gridKey = key;
+    g = { uv, idx };
+    this.grids.set(key, g);
+    if (this.grids.size > 64) this.grids.delete(this.grids.keys().next().value);
+    return g;
   }
 
-  /** Renders the mesh into this.canvas (cleared first). */
-  draw({ width, height, image, rect, points, cols, rows }) {
+  /**
+   * Renders meshes into this.canvas (cleared first) and returns the canvas.
+   * @param {number} width
+   * @param {number} height
+   * @param {{image: CanvasImageSource, rect: object, points: Float32Array, cols: number, rows: number}[]} meshes
+   */
+  drawMeshes(width, height, meshes) {
     const { gl, canvas } = this;
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
@@ -126,21 +138,24 @@ export class GLMeshRenderer {
     gl.viewport(0, 0, width, height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    this.setTexture(image);
-    this.setGrid(cols, rows, rect, image.width, image.height);
-
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.uniform2f(this.uRes, width, height);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, points, gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(this.aPos);
-    gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.uvBuffer);
-    gl.enableVertexAttribArray(this.aUv);
-    gl.vertexAttribPointer(this.aUv, 2, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
-    gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+    for (const m of meshes) {
+      gl.bindTexture(gl.TEXTURE_2D, this.texture(m.image));
+      const g = this.grid(m.cols, m.rows, m.rect, m.image.width, m.image.height);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, m.points, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(this.aPos);
+      gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.uvBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, g.uv, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(this.aUv);
+      gl.vertexAttribPointer(this.aUv, 2, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, g.idx, gl.DYNAMIC_DRAW);
+      gl.drawElements(gl.TRIANGLES, g.idx.length, gl.UNSIGNED_SHORT, 0);
+    }
     return canvas;
   }
 }

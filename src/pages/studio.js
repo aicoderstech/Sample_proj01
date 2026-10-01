@@ -41,17 +41,20 @@ const els = {
   bg: $('opt-bg'),
   tolerance: $('opt-tolerance'),
   skeleton: $('opt-skeleton'),
+  accurate: $('opt-accurate'),
   resetFit: $('reset-fit'),
   addToCart: $('add-to-cart'),
 };
 
 const state = {
   source: null, // 'camera' | 'photo'
-  tracker: null,
-  trackerPromise: null,
+  trackers: {}, // 'live:lite' | 'live:full' | 'photo:full' -> { promise, tracker, error }
+  tracker: null, // the tracker serving the current source
   trackerError: null,
   photo: null,
   points: null,
+  mask: null,
+  lastEngine: null,
   garment: null,
   garmentImage: null,
   garmentMeta: null,
@@ -92,23 +95,42 @@ function setInfo(text, tone = 'info') {
 
 // ---------------------------------------------------------------- tracker
 
-function getTracker() {
-  if (!state.trackerPromise) {
+// Live video uses the fast "lite" pose model (or "full" with high-accuracy
+// tracking on); photos always use the more accurate "full" model.
+const liveModel = () => params.get('model') || (els.accurate.checked ? 'full' : 'lite');
+
+function getTracker(kind = 'live') {
+  const model = kind === 'photo' ? 'full' : liveModel();
+  const slot = (state.trackers[`${kind}:${model}`] ||= {});
+  if (!slot.promise) {
     const mock = params.get('pose') === 'mock';
     const delegate = params.get('delegate') || undefined;
-    state.trackerPromise = (mock ? Promise.resolve(createMockTracker()) : createPoseTracker({ delegate }))
+    slot.promise = (mock ? Promise.resolve(createMockTracker()) : createPoseTracker({ delegate, model }))
       .then((tracker) => {
-        state.tracker = tracker;
-        state.trackerError = null;
+        slot.tracker = tracker;
         return tracker;
       })
       .catch((err) => {
-        state.trackerPromise = null;
-        state.trackerError = err;
+        slot.promise = null;
         throw err;
       });
   }
-  return state.trackerPromise;
+  return slot.promise;
+}
+
+/** Points the current source at its tracker, loading it if needed. */
+async function attachTracker(kind) {
+  state.tracker = null;
+  state.trackerError = null;
+  try {
+    const tracker = await getTracker(kind);
+    if (kind === 'live') await tracker.prepareVideo();
+    if ((kind === 'live') === (state.source === 'camera')) state.tracker = tracker;
+    return tracker;
+  } catch (err) {
+    state.trackerError = err;
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------- sources
@@ -134,6 +156,7 @@ async function useCamera() {
   state.source = 'camera';
   state.photo = null;
   state.points = null;
+  state.mask = null;
   state.mirror = true;
   syncMirrorButton();
   smoother.reset();
@@ -141,8 +164,7 @@ async function useCamera() {
   showStage();
   setStatus('Loading body tracking…');
   try {
-    const tracker = await getTracker();
-    await tracker.prepareVideo();
+    await attachTracker('live');
   } catch (err) {
     setStatus(`Body tracking failed to load: ${err.message}`, 'error');
   }
@@ -174,6 +196,7 @@ async function usePhoto(file) {
   state.source = 'photo';
   state.photo = photo;
   state.points = null;
+  state.mask = null;
   state.mirror = false;
   syncMirrorButton();
   renderer.resetMotion();
@@ -181,11 +204,13 @@ async function usePhoto(file) {
   state.dirty = true;
   setStatus('Finding you in the photo…');
   try {
-    const tracker = await getTracker();
-    const landmarks = await tracker.detectImage(photo);
+    const tracker = await attachTracker('photo');
+    state.tracker = tracker;
+    const detection = await tracker.detectImage(photo);
     if (state.photo !== photo) return;
-    state.points = landmarks ? toPixels(landmarks, photo.width, photo.height) : null;
-    state.poseFrames += landmarks ? 1 : 0;
+    state.points = detection ? toPixels(detection.landmarks, photo.width, photo.height) : null;
+    state.mask = detection?.mask ?? null;
+    state.poseFrames += detection ? 1 : 0;
   } catch (err) {
     setStatus(`Body tracking failed: ${err.message}`, 'error');
     return;
@@ -198,6 +223,7 @@ function switchSource() {
   state.source = null;
   state.photo = null;
   state.points = null;
+  state.mask = null;
   els.empty.hidden = false;
   els.toolbar.hidden = true;
   setStatus('');
@@ -336,7 +362,10 @@ function renderOptions(source, dt) {
     dt,
     physics: els.physics.checked && state.source === 'camera',
     followArms: els.arms.checked,
-    skeleton: els.skeleton.checked,
+    mask: state.mask,
+    temporal: state.source === 'camera',
+    guides: els.skeleton.checked,
+    engine: params.get('engine') || undefined,
     matchLighting: true,
   };
 }
@@ -353,12 +382,14 @@ function tick(now) {
     if (state.tracker && v.currentTime !== state.lastVideoTime) {
       state.lastVideoTime = v.currentTime;
       try {
-        const landmarks = state.tracker.detectVideo(v, now);
-        if (landmarks) {
-          state.points = smoother.smooth(toPixels(landmarks, v.videoWidth, v.videoHeight), now / 1000);
+        const detection = state.tracker.detectVideo(v, now);
+        if (detection) {
+          state.points = smoother.smooth(toPixels(detection.landmarks, v.videoWidth, v.videoHeight), now / 1000);
+          state.mask = detection.mask;
           state.poseFrames++;
         } else {
           state.points = null;
+          state.mask = null;
           smoother.reset();
         }
       } catch (err) {
@@ -368,6 +399,7 @@ function tick(now) {
     const result = renderer.render(renderOptions(v, dt));
     state.lastResultDrawn = result.drawn;
     state.lastWebgl = !!result.webgl;
+    state.lastEngine = result.engine;
     state.framesRendered++;
     updateFps(now);
     updateStatus(result);
@@ -377,6 +409,7 @@ function tick(now) {
     const result = renderer.render(renderOptions(state.photo, 0));
     state.lastResultDrawn = result.drawn;
     state.lastWebgl = !!result.webgl;
+    state.lastEngine = result.engine;
     state.framesRendered++;
     if (state.tracker || state.trackerError) updateStatus(result);
   }
@@ -437,6 +470,9 @@ els.tolerance.addEventListener('change', processGarment);
 els.bg.addEventListener('change', processGarment);
 els.type.addEventListener('change', processGarment);
 for (const el of [els.physics, els.arms, els.skeleton]) el.addEventListener('change', () => (state.dirty = true));
+els.accurate.addEventListener('change', () => {
+  if (state.source === 'camera') attachTracker('live').catch((err) => setStatus(`Body tracking failed to load: ${err.message}`, 'error'));
+});
 
 els.resetFit.addEventListener('click', () => {
   for (const [input, value] of [[els.size, 1], [els.length, 1], [els.offset, 0]]) {
@@ -545,6 +581,9 @@ window.__mirrorfit = {
   state: () => ({
     source: state.source,
     backend: state.tracker?.backend || null,
+    model: state.tracker?.model || null,
+    engine: state.lastEngine,
+    hasMask: !!state.mask,
     trackerError: state.trackerError?.message || null,
     poseFrames: state.poseFrames,
     framesRendered: state.framesRendered,
@@ -577,7 +616,7 @@ if (initial) {
   selectGarment({ url: catalogUrl(first), name: first.name, type: first.type, id: first.id });
 }
 // Warm up body tracking in the background so it's ready when the camera starts.
-const warmUp = () => getTracker().catch(() => {});
+const warmUp = () => getTracker('live').catch(() => {});
 if ('requestIdleCallback' in window) requestIdleCallback(warmUp, { timeout: 2000 });
 else setTimeout(warmUp, 500);
 if (params.get('autostart') === 'camera') useCamera();

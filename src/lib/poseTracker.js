@@ -1,11 +1,21 @@
 // Body tracking. The real tracker runs MediaPipe Pose Landmarker fully in the
-// browser (WebAssembly + GPU/CPU); nothing leaves the device. The mock tracker
-// is used by the landing page demo and by automated tests (`?pose=mock`).
+// browser (WebAssembly + GPU/CPU); nothing leaves the device. Each detection
+// returns the 33 pose landmarks and a person segmentation mask (the body's
+// outline), which the fit engine measures. The mock tracker (landing demo,
+// `?pose=mock` in tests) returns a synthetic person with a known outline.
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
-import { mockPose } from '../core/mockPose.js';
+import { mockBodyFrame, normalizedLandmarks } from '../core/mockBody.js';
 
-const REMOTE_MODEL =
-  'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task';
+const MODELS = {
+  lite: {
+    local: 'models/pose_landmarker_lite.task',
+    remote: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
+  },
+  full: {
+    local: 'models/pose_landmarker_full.task',
+    remote: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task',
+  },
+};
 
 const assetUrl = (path) => new URL(path, document.baseURI).href;
 
@@ -23,11 +33,25 @@ export function hasSoftwareWebGL() {
   }
 }
 
+/** Copies the first pose and its mask out of a MediaPipe result, then frees it. */
+function readResult(result) {
+  try {
+    const landmarks = result.landmarks[0] || null;
+    let mask = null;
+    const m = result.segmentationMasks?.[0];
+    if (landmarks && m) mask = { data: Float32Array.from(m.getAsFloat32Array()), width: m.width, height: m.height };
+    return landmarks ? { landmarks, mask } : null;
+  } finally {
+    result.close?.();
+  }
+}
+
 /**
- * @param {{delegate?: 'GPU'|'CPU'}} options  omit delegate to pick automatically
- * @returns {Promise<{backend:string, detectImage(src):Promise<object[]|null>, detectVideo(src, ts:number):object[]|null, close():void}>}
+ * @param {{delegate?: 'GPU'|'CPU', model?: 'lite'|'full'}} options  omit delegate to pick automatically
+ * @returns {Promise<{backend:string, model:string, detectImage(src):Promise<object|null>, prepareVideo():Promise<void>, detectVideo(src, ts:number):object|null, close():void}>}
+ *   detections are { landmarks, mask } (mask: { data, width, height }) or null
  */
-export async function createPoseTracker({ delegate } = {}) {
+export async function createPoseTracker({ delegate, model = 'lite' } = {}) {
   const fileset = {
     wasmLoaderPath: assetUrl('mediapipe/wasm/vision_wasm_internal.js'),
     wasmBinaryPath: assetUrl('mediapipe/wasm/vision_wasm_internal.wasm'),
@@ -38,11 +62,11 @@ export async function createPoseTracker({ delegate } = {}) {
   }
 
   const delegates = delegate ? [delegate] : hasSoftwareWebGL() ? ['CPU', 'GPU'] : ['GPU', 'CPU'];
-  const models = [assetUrl('models/pose_landmarker_lite.task'), REMOTE_MODEL];
+  const paths = [assetUrl(MODELS[model].local), MODELS[model].remote];
   let landmarker = null;
   let backend = null;
   let lastError = null;
-  outer: for (const modelAssetPath of models) {
+  outer: for (const modelAssetPath of paths) {
     for (const d of delegates) {
       try {
         landmarker = await PoseLandmarker.createFromOptions(fileset, {
@@ -52,6 +76,7 @@ export async function createPoseTracker({ delegate } = {}) {
           minPoseDetectionConfidence: 0.5,
           minPosePresenceConfidence: 0.5,
           minTrackingConfidence: 0.5,
+          outputSegmentationMasks: true,
         });
         backend = d;
         break outer;
@@ -73,9 +98,10 @@ export async function createPoseTracker({ delegate } = {}) {
 
   return {
     backend,
+    model,
     async detectImage(source) {
       await setMode('IMAGE');
-      return landmarker.detect(source).landmarks[0] || null;
+      return readResult(landmarker.detect(source));
     },
     async prepareVideo() {
       await setMode('VIDEO');
@@ -84,7 +110,7 @@ export async function createPoseTracker({ delegate } = {}) {
       if (mode !== 'VIDEO') return null;
       const t = Math.max(Math.round(ts), lastTs + 1);
       lastTs = t;
-      return landmarker.detectForVideo(source, t).landmarks[0] || null;
+      return readResult(landmarker.detectForVideo(source, t));
     },
     close() {
       landmarker.close();
@@ -93,20 +119,23 @@ export async function createPoseTracker({ delegate } = {}) {
 }
 
 export function createMockTracker() {
-  const opts = (src) => {
-    const w = src.videoWidth || src.naturalWidth || src.width || 4;
-    const h = src.videoHeight || src.naturalHeight || src.height || 3;
-    // Landscape camera frames show the upper body, like a laptop webcam.
-    return w > h ? { aspect: w / h, zoom: 1.45, offsetY: 0.2 } : { aspect: w / h, zoom: 1, offsetY: 0.02 };
+  const size = (src) => ({
+    width: src.videoWidth || src.naturalWidth || src.width || 640,
+    height: src.videoHeight || src.naturalHeight || src.height || 480,
+  });
+  const detect = (src, t, motion) => {
+    const body = mockBodyFrame(t, { ...size(src), motion });
+    return { landmarks: normalizedLandmarks(body), mask: body.mask };
   };
   return {
     backend: 'mock',
+    model: 'mock',
     async detectImage(source) {
-      return mockPose(0.6, { ...opts(source), motion: 0 });
+      return detect(source, 0.6, 0);
     },
     async prepareVideo() {},
     detectVideo(source, ts) {
-      return mockPose(ts / 1000, opts(source));
+      return detect(source, ts / 1000, 1);
     },
     close() {},
   };

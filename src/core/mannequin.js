@@ -1,58 +1,62 @@
-// Draws a simple stylised mannequin from pixel landmarks (landing-page demo).
-import { LM } from './body.js';
+// Draws a stylised mannequin from a synthetic body's exact geometry (landing
+// page demo), so the figure matches the outline the garment is fitted to.
 
-const LIMBS = [
-  [LM.LEFT_SHOULDER, LM.LEFT_ELBOW], [LM.LEFT_ELBOW, LM.LEFT_WRIST],
-  [LM.RIGHT_SHOULDER, LM.RIGHT_ELBOW], [LM.RIGHT_ELBOW, LM.RIGHT_WRIST],
-  [LM.LEFT_HIP, LM.LEFT_KNEE], [LM.LEFT_KNEE, LM.LEFT_ANKLE],
-  [LM.RIGHT_HIP, LM.RIGHT_KNEE], [LM.RIGHT_KNEE, LM.RIGHT_ANKLE],
-];
-
-export function drawMannequin(ctx, pts, { skin = '#e9c3a6', shade = '#d4a687' } = {}) {
-  const sw = Math.hypot(pts[11].x - pts[12].x, pts[11].y - pts[12].y);
+export function drawSyntheticBody(ctx, truth, { skin = '#e9c3a6', shade = '#d9b092' } = {}) {
+  const { sw, T } = truth;
+  const seg = (a, b, width, color) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  };
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-
-  ctx.strokeStyle = shade;
-  ctx.lineWidth = sw * 0.24;
-  for (const [a, b] of LIMBS) {
-    ctx.beginPath();
-    ctx.moveTo(pts[a].x, pts[a].y);
-    ctx.lineTo(pts[b].x, pts[b].y);
-    ctx.stroke();
+  for (const leg of Object.values(truth.legs)) {
+    seg(leg.hip, leg.knee, truth.legRadii.thigh * 1.8, shade);
+    seg(leg.knee, leg.ankle, truth.legRadii.knee * 1.9, shade);
   }
-
-  // Torso.
-  const ls = pts[11];
-  const rs = pts[12];
-  const lh = pts[23];
-  const rh = pts[24];
-  ctx.fillStyle = skin;
+  // Neck and head.
+  const n0 = truth.toImage(-truth.neckHalf, -0.36 * T);
+  const n1 = truth.toImage(truth.neckHalf, -0.36 * T);
+  const n2 = truth.toImage(truth.neckHalf, truth.neckBaseV + 2);
+  const n3 = truth.toImage(-truth.neckHalf, truth.neckBaseV + 2);
+  ctx.fillStyle = shade;
   ctx.beginPath();
-  ctx.moveTo(rs.x, rs.y);
-  ctx.lineTo(ls.x, ls.y);
-  ctx.quadraticCurveTo(ls.x + sw * 0.02, (ls.y + lh.y) / 2, lh.x + sw * 0.08, lh.y);
-  ctx.lineTo(rh.x - sw * 0.08, rh.y);
-  ctx.quadraticCurveTo(rs.x - sw * 0.02, (rs.y + rh.y) / 2, rs.x, rs.y);
+  ctx.moveTo(n0.x, n0.y);
+  ctx.lineTo(n1.x, n1.y);
+  ctx.lineTo(n2.x, n2.y);
+  ctx.lineTo(n3.x, n3.y);
   ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = skin;
-  ctx.lineWidth = sw * 0.22;
-  ctx.stroke();
-
-  // Neck and head.
-  const nose = pts[LM.NOSE];
-  const neckTop = { x: nose.x, y: nose.y + sw * 0.25 };
-  const neckBase = { x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2 };
-  ctx.lineWidth = sw * 0.2;
-  ctx.beginPath();
-  ctx.moveTo(neckBase.x, neckBase.y);
-  ctx.lineTo(neckTop.x, neckTop.y);
-  ctx.stroke();
   ctx.fillStyle = skin;
   ctx.beginPath();
-  ctx.ellipse(nose.x, nose.y - sw * 0.06, sw * 0.24, sw * 0.3, 0, 0, Math.PI * 2);
+  ctx.ellipse(truth.head.center.x, truth.head.center.y, truth.head.ru, truth.head.rv, truth.head.angle, 0, Math.PI * 2);
   ctx.fill();
+  // Torso outline from the half-width profile.
+  ctx.fillStyle = skin;
+  ctx.beginPath();
+  const step = T / 40;
+  let first = true;
+  for (let v = -0.08 * T; v <= 1.2 * T; v += step) {
+    const p = truth.edgeAt(v, 'imageLeft');
+    if (first) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+    first = false;
+  }
+  for (let v = 1.2 * T; v >= -0.08 * T; v -= step) {
+    const p = truth.edgeAt(v, 'imageRight');
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  // Arms in front of the torso.
+  for (const arm of Object.values(truth.arms)) {
+    seg(arm.joint, arm.elbow, truth.rU * 2, skin);
+    seg(arm.elbow, arm.wrist, truth.rF * 1.9, skin);
+    seg(arm.wrist, arm.hand, sw * 0.15, shade);
+  }
   ctx.restore();
 }

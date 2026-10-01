@@ -33,6 +33,11 @@ test.describe('studio · photo mode (real body tracking)', () => {
     expect(['GPU', 'CPU']).toContain(s.backend);
     expect(s.webgl).toBe(true);
     expect(s.canvas).toEqual({ width: 1000, height: 667 });
+    // Photos use the accurate pose model, and the fit engine measures the
+    // person's outline from the segmentation mask.
+    expect(s.model).toBe('full');
+    expect(s.hasMask).toBe(true);
+    expect(s.engine).toBe('v2');
 
     // Plausible anatomy: shoulders above hips, person's left shoulder on the image right.
     const p = s.points;
