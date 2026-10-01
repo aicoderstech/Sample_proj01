@@ -35,6 +35,15 @@ export function proxyUrlFor(url) {
  * @returns {Promise<{image: HTMLImageElement, via: 'direct'|'cors'|'proxy'|'tainted'}>}
  */
 export async function loadRemoteImage(url) {
+  let protocol;
+  try {
+    protocol = new URL(url, document.baseURI).protocol;
+  } catch {
+    throw new Error('That is not a valid link.');
+  }
+  if (!['http:', 'https:', 'data:', 'blob:'].includes(protocol)) {
+    throw new Error('Only web (http/https) image links are supported.');
+  }
   if (isSameOrigin(url)) return { image: await loadImage(url), via: 'direct' };
   try {
     return { image: await loadImage(url, { crossOrigin: 'anonymous' }), via: 'cors' };
@@ -120,6 +129,7 @@ export function prepareGarment(source, { removeBg = true, tolerance = 42, type =
     type: finalType,
     guessedType,
     backgroundRemoved: processed.removed,
+    backgroundNote: removeBg ? processed.reason || null : null,
     readable: true,
   };
 }

@@ -30,7 +30,7 @@
             <p>Start your camera, or upload a photo where your shoulders and hips are visible. Then pick a garment, or drop one in from any shop.</p>
             <div class="row">
               <button class="btn primary" id="start-camera" type="button">Start camera</button>
-              <label class="btn" for="photo-input">Upload a photo</label>
+              <button class="btn" type="button" data-file-input="photo-input">Upload a photo</button>
             </div>
             <p class="fine">Body tracking runs on your device. Your camera feed never leaves your browser.</p>
           </div>
@@ -62,7 +62,7 @@
           <div class="garment-grid" id="garment-grid"></div>
           <div class="dropzone" id="dropzone">
             <p><strong>Drag an image here</strong> from any shopping site or your files, or paste one with Ctrl/⌘+V.</p>
-            <label class="btn small" for="garment-input">Choose image</label>
+            <button class="btn small" type="button" data-file-input="garment-input">Choose image</button>
             <input type="file" id="garment-input" accept="image/*" hidden />
           </div>
           <form class="url-form" id="url-form">

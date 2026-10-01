@@ -37,9 +37,9 @@
 
   var CSS =
     '.mf-tryon-btn{display:inline-flex;align-items:center;gap:6px;margin:8px 0 0;padding:8px 14px;min-height:38px;' +
-    'border:0;border-radius:999px;background:#f0482a;color:#fff;font:600 14px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;' +
-    'cursor:pointer;box-shadow:0 4px 14px rgba(240,72,42,.35)}' +
-    '.mf-tryon-btn:hover{background:#d93a1e}.mf-tryon-btn:focus-visible{outline:3px solid #f0482a;outline-offset:2px}' +
+    'border:0;border-radius:999px;background:#c8361b;color:#fff;font:600 14px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;' +
+    'cursor:pointer;box-shadow:0 4px 14px rgba(200,54,27,.35)}' +
+    '.mf-tryon-btn:hover{background:#ad2d15}.mf-tryon-btn:focus-visible{outline:3px solid #c8361b;outline-offset:2px}' +
     '.mf-tryon-btn svg{width:16px;height:16px;flex:none}' +
     '.mf-overlay{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;' +
     'background:rgba(12,10,8,.62);backdrop-filter:blur(4px);animation:mf-in .18s ease-out}' +
@@ -48,7 +48,7 @@
     '.mf-frame iframe{width:100%;height:100%;border:0;display:block;background:#121110}' +
     '.mf-close{position:absolute;top:8px;right:8px;width:40px;height:40px;border:0;border-radius:50%;' +
     'background:rgba(20,18,16,.75);color:#fff;font:400 26px/40px system-ui,sans-serif;cursor:pointer}' +
-    '.mf-close:focus-visible{outline:3px solid #f0482a;outline-offset:2px}' +
+    '.mf-close:focus-visible{outline:3px solid #ff6247;outline-offset:2px}' +
     'html.mf-lock,html.mf-lock body{overflow:hidden}' +
     '@media (max-width:640px){.mf-frame{width:100vw;height:100%;border-radius:0}}' +
     '@keyframes mf-in{from{opacity:0}}';

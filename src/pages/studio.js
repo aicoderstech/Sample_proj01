@@ -129,6 +129,8 @@ async function useCamera() {
     return;
   }
   els.startCamera.disabled = false;
+  // The camera can disappear mid-session (unplugged, taken by another app).
+  for (const track of els.video.srcObject.getVideoTracks()) track.addEventListener('ended', onCameraEnded, { once: true });
   state.source = 'camera';
   state.photo = null;
   state.points = null;
@@ -201,6 +203,12 @@ function switchSource() {
   setStatus('');
   const ctx = els.canvas.getContext('2d');
   ctx.clearRect(0, 0, els.canvas.width, els.canvas.height);
+}
+
+function onCameraEnded() {
+  if (state.source !== 'camera') return;
+  switchSource();
+  setStatus('The camera stopped (disconnected or in use by another app). Press "Start camera" to try again.', 'error');
 }
 
 function syncMirrorButton() {
@@ -282,6 +290,10 @@ function processGarment() {
   const typeLabel = { top: 'top', dress: 'dress', bottom: 'skirt / trousers' }[g.type];
   if (!g.readable) {
     setInfo(`${state.garmentMeta.name}: this shop blocks image access, so the background can't be removed and snapshots are disabled. Save the image and drop the file here instead.`, 'warn');
+    return;
+  }
+  if (g.backgroundNote === 'busy-background') {
+    setInfo(`${state.garmentMeta.name}: the background is too busy to remove, so the whole picture is shown. Use a product photo on a plain background, or a transparent PNG.`, 'warn');
     return;
   }
   const auto = els.type.value === 'auto' ? ' (auto)' : '';
@@ -372,6 +384,8 @@ function tick(now) {
 
 // ---------------------------------------------------------------- snapshots
 
+const MAX_SNAPSHOTS = 12;
+
 function takeSnapshot() {
   if (!state.source) return;
   const fail = (msg) => setInfo(msg, 'error');
@@ -385,6 +399,12 @@ function takeSnapshot() {
       a.title = 'Download snapshot';
       a.innerHTML = `<img alt="Snapshot" src="${url}">`;
       els.snapshots.prepend(a);
+      // Keep memory bounded: drop (and free) the oldest snapshots.
+      while (els.snapshots.children.length > MAX_SNAPSHOTS) {
+        const old = els.snapshots.lastElementChild;
+        URL.revokeObjectURL(old.href);
+        old.remove();
+      }
       els.canvas.classList.remove('flash');
       void els.canvas.offsetWidth;
       els.canvas.classList.add('flash');
@@ -426,6 +446,10 @@ els.resetFit.addEventListener('click', () => {
 });
 
 els.startCamera.addEventListener('click', useCamera);
+// Real buttons (keyboard-focusable) that open the hidden file inputs.
+for (const btn of document.querySelectorAll('[data-file-input]')) {
+  btn.addEventListener('click', () => $(btn.dataset.fileInput).click());
+}
 els.photoInput.addEventListener('change', () => {
   const file = els.photoInput.files[0];
   els.photoInput.value = '';

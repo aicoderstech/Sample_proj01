@@ -5,8 +5,9 @@
   --text: #1d1b19;
   --muted: #6b645c;
   --border: #e6dfd5;
-  --accent: #f0482a;
-  --accent-hover: #d93a1e;
+  /* #c8361b: 5.2:1 with white text, 5:1 on the page background (WCAG AA) */
+  --accent: #c8361b;
+  --accent-hover: #ad2d15;
   --accent-ink: #ffffff;
   --accent-soft: #ffe8e1;
   --ok: #17885c;
@@ -28,8 +29,10 @@
     --text: #f4f1ec;
     --muted: #a59e95;
     --border: #36322d;
+    /* Bright accent on dark backgrounds; dark text on accent buttons (7:1) */
     --accent: #ff6247;
     --accent-hover: #ff7a63;
+    --accent-ink: #1a0d09;
     --accent-soft: #3b2019;
     --ok: #3cc28b;
     --warn: #e0a043;

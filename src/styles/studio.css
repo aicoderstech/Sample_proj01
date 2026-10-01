@@ -160,6 +160,7 @@ body.studio {
 
 .icon-btn.shutter {
   background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .icon-btn svg {

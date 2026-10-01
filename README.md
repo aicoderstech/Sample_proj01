@@ -159,7 +159,9 @@ npm run test:e2e     # builds, then Playwright against the production server
   - **Every garment input path.** Drag and drop, paste, URL, and cross-origin
     images.
   - **The store widget.** Its overlay, add-to-cart and keyboard handling.
-  - **Phone layouts and error states.**
+  - **Phone layouts and error states.** Camera disconnects, busy garment
+    backgrounds, non-web links and keyboard-only use.
+  - **Accessibility.** An axe-core audit of every page in light and dark mode.
 
 The test photo is downloaded on first run into `tests/.fixtures/`. If it can't
 be downloaded, the tests that need it are skipped.

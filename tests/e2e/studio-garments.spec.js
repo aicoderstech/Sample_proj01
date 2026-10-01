@@ -136,4 +136,68 @@ test.describe('studio · garments', () => {
     await expect(page.getByRole('button', { name: 'Start camera' })).toBeEnabled();
     await context.close();
   });
+
+  test('warns when a garment background is too busy to remove', async ({ page }) => {
+    await start(page);
+    const png = await page.evaluate(async () => {
+      const c = document.createElement('canvas');
+      c.width = 300;
+      c.height = 300;
+      const x = c.getContext('2d');
+      for (let i = 0; i < 300; i += 10) {
+        for (let j = 0; j < 300; j += 10) {
+          x.fillStyle = `hsl(${(i * 7 + j * 13) % 360}, 70%, 50%)`;
+          x.fillRect(i, j, 10, 10);
+        }
+      }
+      const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+      return Array.from(new Uint8Array(await blob.arrayBuffer()));
+    });
+    await page.locator('#garment-input').setInputFiles({ name: 'lifestyle.png', mimeType: 'image/png', buffer: Buffer.from(png) });
+    await expect(page.locator('#garment-info')).toHaveAttribute('data-tone', 'warn');
+    await expect(page.locator('#garment-info')).toContainText('background is too busy');
+  });
+
+  test('rejects non-web links without trying to load them', async ({ page }) => {
+    await start(page);
+    const failed = [];
+    page.on('requestfailed', (r) => failed.push(r.url()));
+    await page.locator('#garment-url').fill('ftp://files.example.com/shirt.png');
+    await page.getByRole('button', { name: 'Load' }).click();
+    await expect(page.locator('#garment-info')).toHaveText('Only web (http/https) image links are supported.');
+    expect(failed).toEqual([]);
+  });
+
+  test('keeps at most 12 snapshots', async ({ page }) => {
+    await start(page);
+    for (let i = 0; i < 15; i++) await page.locator('#snapshot').click();
+    await expect(page.locator('#snapshots a')).toHaveCount(12);
+  });
+
+  test('recovers when the camera disconnects', async ({ page }) => {
+    await start(page);
+    await page.evaluate(() => {
+      for (const track of document.getElementById('camera').srcObject.getVideoTracks()) {
+        track.stop();
+        track.dispatchEvent(new Event('ended'));
+      }
+    });
+    await expect(page.locator('#status')).toContainText('The camera stopped');
+    await expect(page.locator('#empty-state')).toBeVisible();
+    expect((await studioState(page)).source).toBeNull();
+  });
+
+  test('photo and garment pickers work from the keyboard', async ({ page }) => {
+    await page.goto('/studio.html?pose=mock');
+    const upload = page.getByRole('button', { name: 'Upload a photo' });
+    await upload.focus();
+    await expect(upload).toBeFocused();
+    const [photoChooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
+    expect(photoChooser.isMultiple()).toBe(false);
+    const choose = page.getByRole('button', { name: 'Choose image' });
+    await choose.focus();
+    const [garmentChooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Enter')]);
+    await garmentChooser.setFiles('public/garments/hoodie-grey.svg');
+    await expect(page.locator('#garment-info')).toContainText('hoodie-grey.svg');
+  });
 });
