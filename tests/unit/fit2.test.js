@@ -242,14 +242,26 @@ describe('BodyFilter', () => {
 });
 
 describe('fitGarment', () => {
-  it('pins shirt shoulder seams onto the shoulder edges', () => {
+  it('pins shirt shoulder seams onto the top-outer corner of each shoulder', () => {
     const body = makeSyntheticBody({ build: 'average', arms: POSES['relaxed A'] });
     const g = loadGarment('oxford-shirt');
-    const fit = fitGarment(measureBody(body.points, body.mask), g.rig);
+    const model = measureBody(body.points, body.mask);
+    const fit = fitGarment(model, g.rig);
     for (const [kp, side] of [[g.rig.kp.shoulderL, 'imageLeft'], [g.rig.kp.shoulderR, 'imageRight']]) {
+      expect(dist(model.shoulderCorner[side], body.truth.shoulderCorner[side])).toBeLessThan(0.03 * body.truth.sw);
       const p = fit.mapPoint(kp.x, kp.y, PART.BODY);
-      expect(dist(p, body.truth.shoulderOuter[side])).toBeLessThan(0.04 * body.truth.sw);
+      expect(dist(p, body.truth.shoulderCorner[side])).toBeLessThan(0.04 * body.truth.sw);
     }
+  });
+
+  it('covers the tops of the shoulders from collar to seam', () => {
+    // The wearer's own clothes used to show in a band above a T-shirt's shoulders.
+    const body = makeSyntheticBody({ build: 'broad', arms: POSES['arms down'] });
+    const g = loadGarment('tee-coral');
+    const r = evaluateFit({ body, rig: g.rig, analysis: g.analysis, fit: v2Engine(body, g) });
+    const tops = r.checks.filter((c) => c.name.startsWith('shoulder top covered'));
+    expect(tops.length).toBe(6);
+    expect(tops.filter((c) => !c.ok)).toEqual([]);
   });
 
   it('sits the trouser crotch just below the hip joints and stops the legs at the ankles', () => {

@@ -92,8 +92,16 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
     };
     const strapU = (side) => body.neckHalf + (shoulderReach(side) - body.neckHalf) * 0.45;
 
+    // Shoulder seams sit on the top-outer corner of each shoulder cap
+    // (slightly outside it, so the fabric covers the outline).
+    const cornerAt = (side) => {
+      const c = body.toLocal(body.shoulderCorner[side].x, body.shoulderCorner[side].y);
+      return { u: c.u + Math.sign(c.u) * 0.01 * sw, v: c.v - 0.012 * sw };
+    };
+    const cL = cornerAt(L);
+    const cR = cornerAt(R);
     const ySh = (kp.shoulderL.y + kp.shoulderR.y) / 2;
-    const vSh = straps ? (topLineV(strapU(L), L) + topLineV(strapU(R), R)) / 2 : 0;
+    const vSh = straps ? (topLineV(strapU(L), L) + topLineV(strapU(R), R)) / 2 : (cL.v + cR.v) / 2;
     // A loose armhole may hang a little below the armpit, never far below it.
     const vAp = clamp(vSh + (yAp - ySh) * sLen, body.armpitV, body.armpitV + 0.2 * sw);
     const upperSlope = (vAp - vSh) / Math.max(1, yAp - ySh);
@@ -104,12 +112,12 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
       pin(kp.shoulderL, -strapU(L), topLineV(strapU(L), L));
       pin(kp.shoulderR, strapU(R), topLineV(strapU(R), R));
     } else {
-      // Shoulder seams onto the measured shoulder edges.
-      const sl = body.toLocal(body.shoulderOuter[L].x, body.shoulderOuter[L].y);
-      const sr = body.toLocal(body.shoulderOuter[R].x, body.shoulderOuter[R].y);
-      pin(kp.shoulderL, sl.u, sl.v);
-      pin(kp.shoulderR, sr.u, sr.v);
+      pin(kp.shoulderL, cL.u, cL.v);
+      pin(kp.shoulderR, cR.u, cR.v);
     }
+    // The top of the shoulders, measured from the outline; never above the
+    // base of the neck.
+    const shoulderTop = (u, side) => (straps || !body.shoulderTopV ? topLineV(u, side) : u <= body.neckHalf ? body.neckBaseV : body.shoulderTopV(u, side) - 0.012 * sw);
     // Neckline.
     if (kp.neckL && kp.neckR) {
       let uL = Math.max(body.neckHalf * 1.05, (cx - kp.neckL.x) * kx);
@@ -118,10 +126,32 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
         uL = Math.max(body.neckHalf * 1.05, strapU(L) - (kp.neckL.x - kp.shoulderL.x) * kx);
         uR = Math.max(body.neckHalf * 1.05, strapU(R) - (kp.shoulderR.x - kp.neckR.x) * kx);
       }
-      const vL = topLineV(uL, L);
-      const vR = topLineV(uR, R);
-      pin(kp.neckL, -uL, vL);
-      pin(kp.neckR, uR, vR);
+      const vL = shoulderTop(uL, L);
+      const vR = shoulderTop(uR, R);
+      if (!straps && rig.topAt) {
+        // The top edge of the collar rests on the shoulder line, the
+        // neckline opening one collar-depth below it (pinning the opening
+        // itself to the line would leave the collar sticking up).
+        const depth = (g) => Math.max(0, g.y - rig.topAt(g.x)) * sLen;
+        pin({ x: kp.neckL.x, y: rig.topAt(kp.neckL.x) }, -uL, vL);
+        pin({ x: kp.neckR.x, y: rig.topAt(kp.neckR.x) }, uR, vR);
+        pin(kp.neckL, -uL, vL + depth(kp.neckL));
+        pin(kp.neckR, uR, vR + depth(kp.neckR));
+      } else {
+        pin(kp.neckL, -uL, vL);
+        pin(kp.neckR, uR, vR);
+      }
+      // The top edge between collar and shoulder corner follows the shoulder
+      // line, so no strip of the wearer's own clothes shows above it.
+      if (!straps && rig.topAt) {
+        for (const [gN, gS, uN, c, side] of [[kp.neckL, kp.shoulderL, uL, cL, L], [kp.neckR, kp.shoulderR, uR, cR, R]]) {
+          for (const t of [0.45, 0.8]) {
+            const gx = gN.x + (gS.x - gN.x) * t;
+            const bu = uN + (Math.abs(c.u) - uN) * t;
+            pin({ x: gx, y: rig.topAt(gx) }, Math.sign(c.u) * bu, shoulderTop(bu, side));
+          }
+        }
+      }
       pin(kp.neckC, 0, Math.min(vAp, (vL + vR) / 2 + (kp.neckC.y - (kp.neckL.y + kp.neckR.y) / 2) * sLen));
     } else {
       pin(kp.neckC, 0, Math.min(body.neckBaseV, vOfY(kp.neckC.y)));

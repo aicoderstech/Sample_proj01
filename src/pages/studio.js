@@ -373,6 +373,14 @@ function updateStatus(result) {
   return setStatus(`Live · ${state.fps || '–'} fps`, 'ok', `live-${state.fps}`);
 }
 
+/** ?realism=0 turns the realism pass off; ?fill=…&shade=… tune it (debugging). */
+function realismOption() {
+  if (params.get('realism') === '0') return false;
+  const tune = {};
+  for (const k of ['fill', 'shade']) if (params.has(k)) tune[k] = Number(params.get(k));
+  return Object.keys(tune).length ? tune : true;
+}
+
 function renderOptions(source, dt) {
   return {
     source,
@@ -387,6 +395,7 @@ function renderOptions(source, dt) {
     temporal: state.source === 'camera',
     guides: els.skeleton.checked,
     engine: params.get('engine') || undefined,
+    realism: realismOption(),
     matchLighting: true,
   };
 }

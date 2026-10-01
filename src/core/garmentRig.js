@@ -345,6 +345,8 @@ function topRig(a, type) {
     fitWidth: fw,
     chestWidth: armRun.r - armRun.l,
     kp: { neckL, neckR, neckC, shoulderL, shoulderR, armpitL, armpitR, waistL, waistR, hemL, hemR, hemC: bottomAt(a, cx) },
+    /** The garment's top edge (collar, shoulders) at column x. */
+    topAt: (x) => topContour(Math.round(x)),
     sides,
     sleeves,
     legs: {},

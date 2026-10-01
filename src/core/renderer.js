@@ -66,6 +66,8 @@ export class TryOnRenderer {
     this.armMaskCtx = this.armMask.getContext('2d');
     this.person = offscreen();
     this.personCtx = this.person.getContext('2d');
+    this.zone = offscreen();
+    this.zoneCtx = this.zone.getContext('2d');
     this.probe = offscreen();
     this.probe.width = 8;
     this.probe.height = 8;
@@ -132,6 +134,8 @@ export class TryOnRenderer {
    * @param {boolean} [o.temporal]                   smooth body measurements over frames (live video)
    * @param {boolean} [o.guides]                     draw the body tracking / fit guides
    * @param {'v1'|'v2'} [o.engine]                   fit engine (v2 unless forced or unavailable)
+   * @param {boolean|{fill?:number, shade?:number}} [o.realism]  edge fill + fabric shading
+   *                                                (default on with WebGL and a mask)
    */
   render(o) {
     const { ctx, canvas } = this;
@@ -168,9 +172,20 @@ export class TryOnRenderer {
         });
         if (!o.physics) this.sways.clear();
         if (o.matchLighting && o.source && this.frameCount++ % 10 === 0) this.updateLighting(o.source, body.frame);
-        this.drawGarment(meshes.filter((m) => !SLEEVES.has(m.part)), useGl, body.sw, o.matchLighting);
+        if (o.mask) this.updatePerson(o.mask);
+        // Realism pass (WebGL): edges extended to the wearer's outline, and
+        // the fabric shaded as it wraps round the body and arms.
+        let post = useGl && o.mask && o.realism !== false ? this.realismInputs(body.sw) : null;
+        if (post && typeof o.realism === 'object') {
+          // Tuning: fill as a fraction of the shoulder width, shade 0..1.
+          if (o.realism.fill != null) post.fill = o.realism.fill * body.sw;
+          if (o.realism.shade != null) post.shade = o.realism.shade;
+        }
+        const bodyMeshes = meshes.filter((m) => !SLEEVES.has(m.part));
+        const sleeveMeshes = meshes.filter((m) => SLEEVES.has(m.part));
+        this.drawGarment(bodyMeshes, useGl, body.sw, o.matchLighting, post && { ...post, zone: this.drawZone(body, fit, g.rig, 'body') });
         this.drawFront(body, o.mask, o.points);
-        this.drawGarment(meshes.filter((m) => SLEEVES.has(m.part)), useGl, body.sw, o.matchLighting);
+        this.drawGarment(sleeveMeshes, useGl, body.sw, o.matchLighting, post && { ...post, zone: this.drawZone(body, fit, g.rig, 'sleeves') });
         result = { frame: body.frame, body, fit, drawn: true, webgl: useGl, engine: 'v2' };
         if (o.guides) this.drawGuides(o.points, body, fit);
       } else {
@@ -198,14 +213,14 @@ export class TryOnRenderer {
     return result;
   }
 
-  drawGarment(meshes, useGl, sw, matchLighting) {
+  drawGarment(meshes, useGl, sw, matchLighting, post = null) {
     if (!meshes.length) return;
     const { ctx } = this;
     const w = this.canvas.width;
     const h = this.canvas.height;
     let layer = this.layer;
     if (useGl) {
-      layer = this.gl.drawMeshes(w, h, meshes);
+      layer = this.gl.drawMeshes(w, h, meshes, post);
     } else {
       const lc = this.layerCtx;
       lc.setTransform(1, 0, 0, 1, 0, 0);
@@ -221,6 +236,174 @@ export class TryOnRenderer {
     ctx.restore();
   }
 
+  /** The person mask as an alpha image (mask resolution). */
+  updatePerson(mask) {
+    if (this.person.width !== mask.width || this.person.height !== mask.height) {
+      this.person.width = mask.width;
+      this.person.height = mask.height;
+      this.personImage = null;
+    }
+    this.personImage ||= this.personCtx.createImageData(mask.width, mask.height);
+    const px = this.personImage.data;
+    for (let i = 0; i < mask.data.length; i++) {
+      px[i * 4] = 255;
+      px[i * 4 + 1] = 255;
+      px[i * 4 + 2] = 255;
+      px[i * 4 + 3] = mask.data[i] >= 0.5 ? 255 : Math.max(0, mask.data[i] * 2 - 0.2) * 255;
+    }
+    this.personCtx.putImageData(this.personImage, 0, 0);
+  }
+
+  /** Inputs for the realism pass (sizes scale with the body). */
+  realismInputs(sw) {
+    return { person: this.person, fill: sw * 0.07, shade: 0.8, round: sw * 0.16 };
+  }
+
+  /**
+   * Where the garment may be extended to the wearer's outline: the band it
+   * covers on the body (shoulders to hem, not inside the neckline, not onto
+   * the arms) for the body pass; along each arm as far as the sleeve reaches
+   * for the sleeve pass.
+   */
+  drawZone(body, fit, rig, pass) {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const z = this.zone;
+    if (z.width !== w || z.height !== h) {
+      z.width = w;
+      z.height = h;
+    }
+    const zc = this.zoneCtx;
+    zc.globalCompositeOperation = 'source-over';
+    zc.clearRect(0, 0, w, h);
+    zc.fillStyle = '#fff';
+    zc.strokeStyle = '#fff';
+    zc.lineCap = 'round';
+    zc.lineJoin = 'round';
+    const { sw, T } = body;
+    const local = (p) => body.toLocal(p.x, p.y);
+    const kp = rig.kp;
+    const limbStroke = (chain, end, width) => {
+      // The limb's polyline up to the point nearest the garment's end.
+      let best = { d: Infinity, i: 1, p: chain[0] };
+      for (let i = 1; i < chain.length; i++) {
+        const a = chain[i - 1];
+        const b = chain[i];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const t = Math.max(0, Math.min(1, ((end.x - a.x) * dx + (end.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+        const p = { x: a.x + dx * t, y: a.y + dy * t };
+        const d = Math.hypot(end.x - p.x, end.y - p.y);
+        if (d < best.d) best = { d, i, p };
+      }
+      // Square end at the cuff / hem: the zone stops where the garment does.
+      zc.lineWidth = width;
+      zc.lineCap = 'butt';
+      zc.beginPath();
+      zc.moveTo(chain[0].x, chain[0].y);
+      for (let i = 1; i < best.i; i++) zc.lineTo(chain[i].x, chain[i].y);
+      zc.lineTo(best.p.x, best.p.y);
+      zc.stroke();
+      zc.lineCap = 'round';
+      zc.beginPath();
+      zc.arc(chain[0].x, chain[0].y, width / 2, 0, Math.PI * 2);
+      zc.fill();
+    };
+
+    // Hands (wrist to fingertips) are never painted over.
+    const clearHands = () => {
+      zc.globalCompositeOperation = 'destination-out';
+      for (const arm of Object.values(body.arms)) {
+        const c = arm.chain;
+        if (c.length < 3) continue;
+        const wr = c[2];
+        const tip = c[3] ?? wr;
+        zc.lineWidth = arm.rF * 3;
+        zc.beginPath();
+        zc.moveTo(wr.x, wr.y);
+        zc.lineTo(tip.x, tip.y);
+        zc.stroke();
+        zc.beginPath();
+        zc.arc(wr.x, wr.y, arm.rF * 1.6, 0, Math.PI * 2);
+        zc.fill();
+      }
+      zc.globalCompositeOperation = 'source-over';
+    };
+
+    if (pass === 'sleeves') {
+      for (const [side, sleeve] of Object.entries(rig.sleeves)) {
+        const arm = body.arms[side];
+        if (!arm) continue;
+        const part = side === 'imageLeft' ? PART.SLEEVE_LEFT : PART.SLEEVE_RIGHT;
+        // Up to the cuff, and no further than the wrist.
+        const end = fit.mapPoint(sleeve.end.x, sleeve.end.y, part);
+        const chain = arm.chain.slice(0, 3);
+        limbStroke(chain, end, Math.max(arm.rU, arm.rF) * 3.2);
+      }
+      clearHands();
+      return z;
+    }
+
+    // Body band: from above the shoulders (or the armpits, for straps) to
+    // just above the hem.
+    const hasSleeves = Object.keys(rig.sleeves).length > 0;
+    const bottom = rig.type === 'bottom';
+    const hem = kp.hemC ?? kp.crotch ?? kp.hemL;
+    let vTop;
+    if (bottom) vTop = local(fit.mapPoint(kp.waistL.x, kp.waistL.y, PART.BODY)).v + 0.02 * T;
+    else if (!hasSleeves && kp.neckL && rig.type === 'dress') vTop = body.armpitV;
+    else vTop = Math.min(local(body.shoulderCorner.imageLeft).v, local(body.shoulderCorner.imageRight).v) - 0.15 * sw;
+    const vBottom = local(fit.mapPoint(hem.x, hem.y, PART.BODY)).v - 0.01 * T;
+    if (vBottom > vTop) {
+      zc.beginPath();
+      const step = (vBottom - vTop) / 24;
+      for (let i = 0; i <= 24; i++) {
+        const v = vTop + step * i;
+        const p = body.toImage(-(body.halfAt(Math.max(v, body.neckBaseV), 'imageLeft') + 0.25 * sw), v);
+        if (i === 0) zc.moveTo(p.x, p.y);
+        else zc.lineTo(p.x, p.y);
+      }
+      for (let i = 24; i >= 0; i--) {
+        const v = vTop + step * i;
+        const p = body.toImage(body.halfAt(Math.max(v, body.neckBaseV), 'imageRight') + 0.25 * sw, v);
+        zc.lineTo(p.x, p.y);
+      }
+      zc.closePath();
+      zc.fill();
+    }
+    // Trouser legs, down to the hem.
+    for (const [side, leg] of Object.entries(rig.legs)) {
+      const bl = body.legs[side];
+      if (!bl) continue;
+      const part = side === 'imageLeft' ? PART.LEG_LEFT : PART.LEG_RIGHT;
+      limbStroke(bl.chain, fit.mapPoint(leg.end.x, leg.end.y, part), bl.r * 3.4);
+    }
+    zc.globalCompositeOperation = 'destination-out';
+    // Not inside the neckline.
+    if (!bottom && kp.neckL && kp.neckR && kp.neckC) {
+      const nl = fit.mapPoint(kp.neckL.x, kp.neckL.y, PART.BODY);
+      const nr = fit.mapPoint(kp.neckR.x, kp.neckR.y, PART.BODY);
+      const nc = fit.mapPoint(kp.neckC.x, kp.neckC.y, PART.BODY);
+      const up = (p) => body.toImage(local(p).u, -0.8 * T);
+      zc.beginPath();
+      for (const p of [up(nl), up(nr), nr, nc, nl]) zc.lineTo(p.x, p.y);
+      zc.closePath();
+      zc.fill();
+    }
+    // Not onto the arms (sleeves are a separate pass; bare arms stay bare).
+    for (const arm of Object.values(body.arms)) {
+      const c = arm.chain;
+      zc.lineWidth = arm.rU * 2.1;
+      zc.beginPath();
+      zc.moveTo(c[0].x, c[0].y);
+      for (let i = 1; i < c.length; i++) zc.lineTo(c[i].x, c[i].y);
+      zc.stroke();
+    }
+    zc.globalCompositeOperation = 'source-over';
+    clearHands();
+    return z;
+  }
+
   /**
    * Redraws what is in front of the garment body, cut from the background
    * with the person mask: the head (a hood or collar sits behind it) and the
@@ -232,18 +415,6 @@ export class TryOnRenderer {
     if (!mask || (!arms.length && !head)) return;
     const w = this.canvas.width;
     const h = this.canvas.height;
-    // Person mask as an alpha image.
-    if (this.person.width !== mask.width || this.person.height !== mask.height) {
-      this.person.width = mask.width;
-      this.person.height = mask.height;
-      this.personImage = null;
-    }
-    this.personImage ||= this.personCtx.createImageData(mask.width, mask.height);
-    const px = this.personImage.data;
-    for (let i = 0; i < mask.data.length; i++) {
-      px[i * 4 + 3] = mask.data[i] >= 0.5 ? 255 : Math.max(0, mask.data[i] * 2 - 0.2) * 255;
-    }
-    this.personCtx.putImageData(this.personImage, 0, 0);
 
     const mc = this.armMaskCtx;
     mc.setTransform(1, 0, 0, 1, 0, 0);

@@ -3,7 +3,9 @@
 // Every check is expressed in % of the shoulder-joint width (sw). For an
 // adult with 40 cm between the shoulder joints, 1% of sw is 4 mm.
 //
-//   shoulder seam      seam point within 4% sw of the true shoulder edge
+//   shoulder seam      seam point within 4% sw of the shoulder cap's top-outer corner
+//   shoulder top       the top of the shoulders (collar to seam) is covered,
+//                      within 2.5% sw
 //   neck centring      neckline centre within 2.5% sw of the body midline
 //   chest contact      side seams hug the chest: no gap, at most 10% sw ease
 //   waist/hip cover    side seams cover the body there, at most 25% sw drape
@@ -11,6 +13,7 @@
 //   leg on leg         trouser leg centre line within 5% sw of the leg's
 //   torso coverage     >= 99% of the torso the garment should cover is covered
 //   spill              <= 2% of the garment hangs in the air above the hips
+//                      (a collar or hood standing up round the neck is allowed)
 //                      (fabric falling straight from the chest is allowed)
 import { limbSectionAt, PART } from './garmentRig.js';
 import { rasterizeMeshes } from './raster.js';
@@ -124,9 +127,26 @@ export function evaluateFit({ body, rig, analysis, fit }) {
     const hasSleeves = Object.keys(rig.sleeves).length > 0;
     for (const side of ['imageLeft', 'imageRight']) {
       const kp = side === 'imageLeft' ? rig.kp.shoulderL : rig.kp.shoulderR;
-      const target = hasSleeves || rig.type === 'top' ? truth.shoulderOuter[side] : truth.strapPoint[side];
+      const target = hasSleeves || rig.type === 'top' ? truth.shoulderCorner[side] : truth.strapPoint[side];
       const p = fit.mapPoint(kp.x, kp.y, PART.BODY);
       if (inImage(target)) add(`shoulder seam (${side})`, Math.hypot(p.x - target.x, p.y - target.y), 4);
+    }
+    // The tops of the shoulders, collar to shoulder corner, are covered: no
+    // strip of the wearer's own clothes shows above the garment.
+    if (hasSleeves || rig.type === 'top') {
+      for (const side of ['imageLeft', 'imageRight']) {
+        const c = truth.cornerLocal[side];
+        const sgn = Math.sign(c.u);
+        for (const t of [0.3, 0.55, 0.8]) {
+          const u = sgn * (truth.neckHalf * 1.4 + (Math.abs(c.u) - truth.neckHalf * 1.4) * t);
+          const top = truth.topV(u);
+          if (top < c.v - 0.1 * sw) continue; // a raised arm above the shoulder, not its top
+          // Distance from the body's top surface down to the first covered pixel.
+          let gap = 0;
+          while (gap < 0.3 * sw && !labelAt(truth.toImage(u, top + 0.5 + gap))) gap += 0.5;
+          add(`shoulder top covered (${side})`, gap, 2.5);
+        }
+      }
     }
     const nc = fit.mapPoint(rig.kp.neckC.x, rig.kp.neckC.y, PART.BODY);
     const local = truth.toLocal(nc.x, nc.y);
@@ -193,6 +213,11 @@ export function evaluateFit({ body, rig, analysis, fit }) {
     if (p.v < 0.2 * T || p.v >= T) return false;
     return Math.abs(p.u) <= hull[Math.round(p.v)] + r;
   };
+  // A collar or hood stands up round the neck, above the shoulder line: not spill.
+  const inCollar = (px, py) => {
+    const p = truth.toLocal(px, py);
+    return p.v < 0.05 * T && Math.abs(p.u) <= truth.neckHalf * 2.2;
+  };
   const ring = Array.from({ length: 8 }, (_, k) => [Math.cos((k * Math.PI) / 4) * r, Math.sin((k * Math.PI) / 4) * r]);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -206,7 +231,7 @@ export function evaluateFit({ body, rig, analysis, fit }) {
       }
       if (covered && lv < T) {
         garmentPx++;
-        if (!truth.isPerson(px, py) && !ring.some(([dx, dy]) => truth.isPerson(px + dx, py + dy)) && !inDrape(px, py)) spill++;
+        if (!truth.isPerson(px, py) && !ring.some(([dx, dy]) => truth.isPerson(px + dx, py + dy)) && !inDrape(px, py) && !inCollar(px, py)) spill++;
       }
     }
   }

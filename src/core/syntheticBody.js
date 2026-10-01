@@ -147,6 +147,28 @@ export function makeSyntheticBody(o = {}) {
     (v >= -0.35 * T && v <= neckBaseV + 2 && Math.abs(u) <= neckHalf) ||
     ((u - head.u) / head.ru) ** 2 + ((v - head.v) / head.rv) ** 2 <= 1;
 
+  // Shoulder caps (local): where a ray from the joint at 45 degrees (up and
+  // out) leaves the torso / arm surface; the top of the joint when the arm
+  // is raised along that ray.
+  const onBody = (u, v) => insideTorsoLocal(u, v) || insideArmLocal(u, v);
+  const exitAlong = (u0, v0, du, dv, max) => {
+    let d = 0;
+    while (d <= max && onBody(u0 + du * d, v0 + dv * d)) d += 0.25;
+    return d;
+  };
+  const cornerLocal = (sgn) => {
+    const k = Math.SQRT1_2;
+    const d = exitAlong(sgn * half, 0, sgn * k, -k, rU * 2);
+    if (d >= rU * 0.5 && d <= rU * 1.8) return { u: sgn * (half + k * d), v: -k * d };
+    const t = exitAlong(sgn * half, 0, 0, -1, rU * 2);
+    return { u: sgn * half, v: -(t >= rU * 0.5 && t <= rU * 2 ? t : rU) };
+  };
+  /** Top of the torso / shoulder surface at local u (beside the neck). */
+  const topV = (u) => {
+    for (let v = -0.4 * T; v <= 0.3 * T; v += 0.25) if (onBody(u, v)) return v;
+    return 0;
+  };
+
   const truth = {
     sw,
     T,
@@ -165,6 +187,13 @@ export function makeSyntheticBody(o = {}) {
       imageLeft: toImage(-(half + rU), 0),
       imageRight: toImage(half + rU, 0),
     },
+    /** Where a garment's shoulder seam sits: the top-outer corner of each shoulder cap. */
+    shoulderCorner: {
+      imageLeft: (({ u, v }) => toImage(u, v))(cornerLocal(-1)),
+      imageRight: (({ u, v }) => toImage(u, v))(cornerLocal(1)),
+    },
+    cornerLocal: { imageLeft: cornerLocal(-1), imageRight: cornerLocal(1) },
+    topV,
     neckBaseCenter: toImage(0, neckBaseV),
     head: { center: toImage(head.u, head.v), ru: head.ru, rv: head.rv, angle: lean },
     legRadii: { thigh: 0.17 * sw, knee: 0.12 * sw, ankle: 0.09 * sw },

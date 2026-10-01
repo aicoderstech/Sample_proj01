@@ -380,6 +380,64 @@ export function measureBody(pts, mask = null) {
     shoulderOuter[side] = point;
   }
 
+  // Shoulder caps. A garment's shoulder corner sits on the top-outer edge of
+  // the shoulder: where a ray from the joint at 45 degrees (up and outward)
+  // leaves the outline. With the arm hanging, that is the rounded corner of
+  // the silhouette; with the arm out, the top of the arm next to the joint.
+  // When the arm is raised along the ray, the top of the joint is used.
+  const up = { x: -frame.down.x, y: -frame.down.y };
+  const shoulderCorner = {};
+  for (const [side, sgn, idx] of [['imageLeft', -1, LM.RIGHT_SHOULDER], ['imageRight', 1, LM.LEFT_SHOULDER]]) {
+    const j = pts[idx];
+    const r = arms[side]?.rU ?? sw * 0.12;
+    const d45 = normalize({ x: up.x + ax0.x * sgn, y: up.y + ax0.y * sgn });
+    let point = { x: j.x + d45.x * r, y: j.y + d45.y * r };
+    if (mask && inFrame(j) && maskAt(j) >= 0.5) {
+      const hit = scan(j, d45, r * 2);
+      if (hit.reason === 'edge' && hit.d >= r * 0.5 && hit.d <= r * 1.8) point = { x: j.x + d45.x * hit.d, y: j.y + d45.y * hit.d };
+      else {
+        const top = scan(j, up, r * 2);
+        point = top.reason === 'edge' && top.d >= r * 0.5 ? { x: j.x + up.x * top.d, y: j.y + up.y * top.d } : { x: j.x + up.x * r, y: j.y + up.y * r };
+      }
+    }
+    shoulderCorner[side] = point;
+  }
+
+  // The top of the shoulders from the base of the neck to each corner,
+  // measured by scanning up from inside the body (hair or a tilted head
+  // can't lift it by more than a little).
+  const shoulderTop = {};
+  for (const [side, sgn] of [['imageLeft', -1], ['imageRight', 1]]) {
+    const c = toLocal(shoulderCorner[side].x, shoulderCorner[side].y);
+    const u0 = sgn * neckHalf;
+    const samples = [];
+    for (let k = 0; k <= 8; k++) {
+      const t = k / 8;
+      const u = u0 + (c.u - u0) * t;
+      const vLin = neckBaseV + (c.v - neckBaseV) * t;
+      let v = vLin;
+      if (mask && k > 0 && k < 8) {
+        const start = toImage(u, vLin + 0.15 * sw);
+        if (inFrame(start) && maskAt(start) >= 0.5) {
+          const hit = scan(start, up, 0.45 * sw);
+          if (hit.reason === 'edge') v = toLocal(start.x + up.x * hit.d, start.y + up.y * hit.d).v;
+        }
+      }
+      if (k === 8) v = c.v;
+      samples.push({ u: Math.abs(u), v: clamp(v, vLin - 0.1 * sw, vLin + 0.04 * sw) });
+    }
+    shoulderTop[side] = samples;
+  }
+  /** Top of the shoulder at distance |u| from the midline (local v). */
+  const shoulderTopV = (absU, side) => {
+    const s = shoulderTop[side];
+    if (absU <= s[0].u) return s[0].v;
+    for (let i = 1; i < s.length; i++) {
+      if (absU <= s[i].u) return s[i - 1].v + ((absU - s[i - 1].u) / Math.max(1e-6, s[i].u - s[i - 1].u)) * (s[i].v - s[i - 1].v);
+    }
+    return s[s.length - 1].v;
+  };
+
   return {
     frame,
     sw,
@@ -397,6 +455,8 @@ export function measureBody(pts, mask = null) {
     waistV: WAIST_V * T,
     hipV: T,
     shoulderOuter,
+    shoulderCorner,
+    shoulderTopV,
     arms,
     legs,
     hasMask: !!mask,
@@ -438,6 +498,9 @@ export class BodyFilter {
       const so = body.shoulderOuter[side];
       const po = p.shoulderOuter[side];
       body.shoulderOuter[side] = { x: mix(so.x, po.x), y: mix(so.y, po.y) };
+      const sc = body.shoulderCorner[side];
+      const pc = p.shoulderCorner[side];
+      body.shoulderCorner[side] = { x: mix(sc.x, pc.x), y: mix(sc.y, pc.y) };
       if (body.armpitSide && p.armpitSide) body.armpitSide[side] = mix(body.armpitSide[side], p.armpitSide[side]);
       for (const key of ['rU', 'rF']) {
         if (body.arms[side] && p.arms[side]) body.arms[side][key] = mix(body.arms[side][key], p.arms[side][key]);

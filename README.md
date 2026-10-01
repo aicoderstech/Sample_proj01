@@ -59,7 +59,12 @@ served over **HTTPS**.
     the elbows and knees. Forearms and hands are drawn in front of the garment.
   - Fabric hugs the body where it is wider than the garment and keeps its own
     shape where the garment is wider (a T-shirt hanging straight, a skirt
-    flaring out).
+    flaring out). Shoulder seams sit on the top-outer corner of each shoulder,
+    and the top edge follows the measured line of the shoulders.
+  - A WebGL realism pass extends the garment's edges to the wearer's outline
+    where the clothes underneath are a few pixels wider (so none peek out),
+    and shades the fabric as it wraps round the body and arms. The head,
+    forearms and hands stay in front of the garment.
   - Accuracy is measured: see [Fit accuracy](#fit-accuracy).
   - Rendered as textured triangle meshes (WebGL, with a 2D-canvas fallback).
     Spring physics make the hem lag and sway when you move.
@@ -159,19 +164,20 @@ scores each fit with geometric checks, measured in shoulder widths (sw):
 
 | Check | Passes when |
 | --- | --- |
-| Shoulder seam | the seam is within 4% sw of the true shoulder edge |
+| Shoulder seam | the seam is within 4% sw of the top-outer corner of the shoulder |
+| Shoulder top | the top of the shoulders, collar to seam, is covered (within 2.5% sw) |
 | Neck centring | the neckline is within 2.5% sw of the body's midline |
 | Chest / waistband contact | the fabric touches the body, with at most 10% sw ease |
 | Waist / hip cover | the fabric covers the body, with at most 20–25% sw drape |
 | Sleeve on arm / leg on leg | the sleeve or trouser-leg centre line is within 4–5% sw of the limb |
 | Torso coverage | at least 99% of the torso the garment should cover is covered |
-| Spill | at most 2% of the garment hangs in the air |
+| Spill | at most 2% of the garment hangs in the air (a collar or hood may stand up round the neck) |
 
 | Tracking | Original engine | Fit engine v2 |
 | --- | --- | --- |
-| Exact landmarks and mask | 43.8% of checks | **100%** (4,322 / 4,322) |
-| Webcam-level noise (±2% landmarks, ragged mask edge) | 43.4% | **98.7%** |
-| Heavy noise (±4% landmarks) | 41.5% | 88.0% |
+| Exact landmarks and mask | 51.6% of checks | **100%** (5,494 / 5,494) |
+| Webcam-level noise (±2% landmarks, ragged mask edge) | 53.1% | **99.1%** |
+| Heavy noise (±4% landmarks) | 51.3% | 91.5% |
 
 The unit tests require at least 99.9% with exact tracking and 98% with
 webcam-level noise. How well a real try-on fits depends on the pose model's
