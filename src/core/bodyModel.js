@@ -49,9 +49,26 @@ const visible = (p) => p && p.v >= 0.5;
  * @param {{data: Float32Array, width: number, height: number, scale?: number}|null} mask
  *   person segmentation (0..1); scale = mask pixels per image pixel (default 1)
  */
+/**
+ * Rejects anatomically impossible detections (a pose model can return a
+ * confident "person" on a tight crop, with the hips beside the shoulders):
+ * the torso must run across the shoulder line, not along it.
+ */
+function plausible(pts) {
+  const ls = pts[LM.LEFT_SHOULDER];
+  const rs = pts[LM.RIGHT_SHOULDER];
+  const lh = pts[LM.LEFT_HIP];
+  const rh = pts[LM.RIGHT_HIP];
+  if (!visible(lh) || !visible(rh)) return true;
+  const s = { x: ls.x - rs.x, y: ls.y - rs.y };
+  const t = { x: (lh.x + rh.x - ls.x - rs.x) / 2, y: (lh.y + rh.y - ls.y - rs.y) / 2 };
+  const ls2 = Math.hypot(s.x, s.y) * Math.hypot(t.x, t.y);
+  return ls2 < 1e-9 || Math.abs(s.x * t.x + s.y * t.y) / ls2 <= 0.9;
+}
+
 export function measureBody(pts, mask = null) {
   const frame = computeBodyFrame(pts);
-  if (!frame) return null;
+  if (!frame || !plausible(pts)) return null;
   const sw = frame.shoulderWidth;
   const T = frame.torsoLength;
   const half = sw / 2;
@@ -102,7 +119,10 @@ export function measureBody(pts, mask = null) {
     imageLeft: { s: LM.RIGHT_SHOULDER, e: LM.RIGHT_ELBOW, w: LM.RIGHT_WRIST, h: 20, hip: LM.RIGHT_HIP, k: LM.RIGHT_KNEE, a: LM.RIGHT_ANKLE, f: 32 },
     imageRight: { s: LM.LEFT_SHOULDER, e: LM.LEFT_ELBOW, w: LM.LEFT_WRIST, h: 19, hip: LM.LEFT_HIP, k: LM.LEFT_KNEE, a: LM.LEFT_ANKLE, f: 31 },
   };
-  const radiusAcross = (a, b, fallback, awayFrom) => {
+  // max: the widest this limb plausibly is (with clothing), in shoulder widths.
+  // A limb in front of the torso has no outline edge nearby; the scan then
+  // runs on across the body, so a reading well past the maximum is discarded.
+  const radiusAcross = (a, b, fallback, awayFrom, max) => {
     if (!mask) return fallback;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     if (!inFrame(mid) || maskAt(mid) < 0.5) return fallback;
@@ -110,8 +130,9 @@ export function measureBody(pts, mask = null) {
     let n = { x: -d.y, y: d.x };
     // Measure on the side facing away from the torso, which is never blocked.
     if ((mid.x - awayFrom.x) * n.x + (mid.y - awayFrom.y) * n.y < 0) n = { x: -n.x, y: -n.y };
-    const r = scan(mid, n, sw * 0.4);
-    return r.reason === 'edge' ? clamp(r.d, sw * 0.06, sw * 0.22) : fallback;
+    const r = scan(mid, n, sw * max * 1.4);
+    if (r.reason !== 'edge') return fallback;
+    return clamp(r.d, sw * 0.05, sw * max);
   };
   const centre = toImage(0, T * 0.4);
   const arms = {};
@@ -122,11 +143,11 @@ export function measureBody(pts, mask = null) {
     const wrist = pts[ix.w];
     const handPt = pts[ix.h];
     if (visible(elbow)) {
-      const rU = radiusAcross(joint, elbow, sw * 0.12, centre);
+      const rU = radiusAcross(joint, elbow, sw * 0.12, centre, 0.17);
       const chain = [joint, elbow];
       let rF = sw * 0.09;
       if (visible(wrist)) {
-        rF = radiusAcross(elbow, wrist, sw * 0.09, centre);
+        rF = radiusAcross(elbow, wrist, sw * 0.09, centre, 0.13);
         chain.push(wrist);
         if (visible(handPt)) chain.push({ x: wrist.x + (handPt.x - wrist.x) * 1.3, y: wrist.y + (handPt.y - wrist.y) * 1.3 });
       }
@@ -138,7 +159,7 @@ export function measureBody(pts, mask = null) {
       const chain = [hip, knee];
       // The foot points forward / sideways, so the leg ends at the ankle.
       if (visible(pts[ix.a])) chain.push(pts[ix.a]);
-      legs[side] = { chain: chain.map((p) => ({ x: p.x, y: p.y })), r: radiusAcross(hip, knee, sw * 0.16, centre), complete: chain.length === 3 };
+      legs[side] = { chain: chain.map((p) => ({ x: p.x, y: p.y })), r: radiusAcross(hip, knee, sw * 0.16, centre, 0.26), complete: chain.length === 3 };
     }
   }
   /** True when this upper arm hangs down (> 55 deg below horizontal), so the
@@ -160,6 +181,11 @@ export function measureBody(pts, mask = null) {
     return false;
   };
 
+  // A torso half-width far wider or narrower than any build means the scan
+  // ran into something else (an arm the landmarks missed, a dark background
+  // merging with dark clothes, a gap between objects on the lap).
+  const plausibleHalf = (d, f) => f < 0.1 || (d <= priorAt(f) * half * 1.55 && d >= priorAt(f) * half * 0.6);
+
   // Re-anchor the origin to the outline, which is far steadier than the
   // joint landmarks: centre it between the torso's sides, and set the
   // shoulder line one upper-arm radius below the top of the shoulders.
@@ -174,7 +200,7 @@ export function measureBody(pts, mask = null) {
       const ax = axisAt(f * T);
       const l = scan(c, { x: -ax.x, y: -ax.y }, sw * 1.3, inArm);
       const r = scan(c, ax, sw * 1.3, inArm);
-      if (l.reason === 'edge' && r.reason === 'edge') {
+      if (l.reason === 'edge' && r.reason === 'edge' && plausibleHalf(l.d, f) && plausibleHalf(r.d, f)) {
         vs.push(f * T);
         offsets.push((r.d - l.d) / 2);
       }
@@ -224,7 +250,8 @@ export function measureBody(pts, mask = null) {
     for (const [side, sgn] of [['imageLeft', -1], ['imageRight', 1]]) {
       const r = scan(c, { x: ax.x * sgn, y: ax.y * sgn }, sw * 1.3, inArm);
       raw[side][i] = r.d;
-      ok[side][i] = r.reason === 'edge' ? 1 : 0;
+      // Implausible widths count as unmeasured.
+      ok[side][i] = r.reason === 'edge' && plausibleHalf(r.d, v / T) ? 1 : 0;
     }
   }
   // Scale the prior to this person from the reliable chest-to-hip samples.
@@ -298,6 +325,9 @@ export function measureBody(pts, mask = null) {
       break;
     }
   }
+  // A high collar or hair merging with the shoulders in the mask can't move
+  // the base of the neck outside its anatomical range.
+  neckBaseV = clamp(neckBaseV, -0.18 * sw, -0.04 * sw);
 
   // Shoulder edges: the outline along the shoulder line when it can be seen
   // (much steadier than the joint landmarks), else joint + upper-arm radius.

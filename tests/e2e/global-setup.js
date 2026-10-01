@@ -1,6 +1,8 @@
 // Prepares e2e fixtures in tests/.fixtures (git-ignored):
 //   person.jpg – a real photo of a person (downloaded once) for body tracking
 //   person.y4m – that photo as a raw video, fed to Chromium's fake camera
+//   person-638w.jpg – a full-length photo 638 px wide (not a multiple of 4,
+//                which used to crash MediaPipe's segmentation)
 // If the photo can't be downloaded, a plain grey video is written instead so
 // the browser still starts; tests that need a real person are then skipped.
 import { chromium } from '@playwright/test';
@@ -10,14 +12,15 @@ import { fileURLToPath } from 'node:url';
 
 export const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '..', '.fixtures');
 const PHOTO_URL = 'https://storage.googleapis.com/mediapipe-assets/pose.jpg';
+const ODD_WIDTH_PHOTO_URL = 'https://storage.googleapis.com/mediapipe-assets/male_full_height_hands.jpg';
 const WIDTH = 640;
 const HEIGHT = 480;
 const FRAMES = 10;
 
-async function downloadPhoto(dest) {
+async function downloadPhoto(dest, url = PHOTO_URL) {
   if (existsSync(dest)) return true;
   try {
-    const res = await fetch(PHOTO_URL, { signal: AbortSignal.timeout(20_000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
     return true;
@@ -99,7 +102,8 @@ export default async function globalSetup() {
   const photo = join(FIXTURES, 'person.jpg');
   const video = join(FIXTURES, 'person.y4m');
   const hasPhoto = await downloadPhoto(photo);
-  writeFileSync(join(FIXTURES, 'status.json'), JSON.stringify({ hasPhoto }));
+  const hasOddWidthPhoto = await downloadPhoto(join(FIXTURES, 'person-638w.jpg'), ODD_WIDTH_PHOTO_URL);
+  writeFileSync(join(FIXTURES, 'status.json'), JSON.stringify({ hasPhoto, hasOddWidthPhoto }));
   if (existsSync(video) && hasPhoto) return;
   const rgba = hasPhoto ? await decodeToRgba(photo) : new Uint8Array(WIDTH * HEIGHT * 4).fill(128);
   writeY4m(video, rgba);

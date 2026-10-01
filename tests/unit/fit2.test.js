@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { BodyFilter, measureBody } from '../../src/core/bodyModel.js';
 import { FIT2, fitGarment } from '../../src/core/fit2.js';
 import { evaluateFit } from '../../src/core/fitMetrics.js';
+import { fitReport } from '../../src/core/fitReport.js';
 import { PART } from '../../src/core/garmentRig.js';
 import { mockBodyFrame, normalizedLandmarks } from '../../src/core/mockBody.js';
+import { headOutline } from '../../src/core/renderer.js';
 import { makeSpine } from '../../src/core/spine.js';
 import { makeSyntheticBody } from '../../src/core/syntheticBody.js';
 import { fitTps } from '../../src/core/tps.js';
@@ -139,6 +141,87 @@ describe('measureBody', () => {
   it('needs both shoulders', () => {
     const pts = body.points.map((p, i) => (i === 11 ? { ...p, v: 0 } : p));
     expect(measureBody(pts, body.mask)).toBeNull();
+  });
+});
+
+describe('measureBody on difficult real-photo cases', () => {
+  it('does not mistake a forearm across the torso for a thick arm', () => {
+    const body = makeSyntheticBody({ build: 'average', arms: POSES['arms crossed'] });
+    const model = measureBody(body.points, body.mask);
+    for (const side of ['imageLeft', 'imageRight']) {
+      expect(model.arms[side].rF).toBeLessThanOrEqual(0.13 * body.truth.sw + 1e-9);
+      expect(model.arms[side].rU).toBeLessThanOrEqual(0.17 * body.truth.sw + 1e-9);
+    }
+  });
+
+  it('ignores an object merged into the outline beside the chest', () => {
+    const body = makeSyntheticBody({ build: 'average', arms: POSES['T-pose'] });
+    const { truth, mask } = body;
+    // A dark background merging with dark clothes: a blob 0.8 sw wide stuck
+    // to the right side of the chest and waist.
+    for (let v = 0.2 * truth.T; v <= 0.8 * truth.T; v += 0.5) {
+      for (let u = 0; u <= truth.halfWidth(v) + 0.8 * truth.sw; u += 0.5) {
+        const p = truth.toImage(u, v);
+        mask.data[Math.floor(p.y) * mask.width + Math.floor(p.x)] = 1;
+      }
+    }
+    const model = measureBody(body.points, mask);
+    const v = 0.5 * model.T;
+    expect(Math.abs(model.halfAt(v, 'imageRight') - truth.halfWidth(v))).toBeLessThan(0.08 * truth.sw);
+  });
+
+  it('rejects an anatomically impossible detection (hips beside the shoulders)', () => {
+    const body = makeSyntheticBody({ build: 'average' });
+    const pts = body.points.map((p) => ({ ...p }));
+    const mid = { x: (pts[11].x + pts[12].x) / 2, y: (pts[11].y + pts[12].y) / 2 };
+    pts[23] = { ...pts[23], x: mid.x - 200, y: mid.y + 4 };
+    pts[24] = { ...pts[24], x: mid.x - 190, y: mid.y + 6 };
+    expect(measureBody(pts, body.mask)).toBeNull();
+    // A side-on pose is still accepted.
+    const side = body.points.map((p) => ({ ...p }));
+    side[11] = { ...side[11], x: mid.x + 15 };
+    side[12] = { ...side[12], x: mid.x - 15 };
+    expect(measureBody(side, body.mask)).not.toBeNull();
+  });
+});
+
+describe('headOutline', () => {
+  it('covers the head down to the chin and stops above the neck base', () => {
+    const body = makeSyntheticBody({ build: 'average' });
+    const head = headOutline(body.points);
+    const inside = (p) => {
+      const c = Math.cos(-head.angle);
+      const s = Math.sin(-head.angle);
+      const dx = p.x - head.x;
+      const dy = p.y - head.y;
+      const x = dx * c - dy * s;
+      const y = dx * s + dy * c;
+      return (x / head.rx) ** 2 + (y / head.ry) ** 2 <= 1;
+    };
+    expect(inside(body.truth.head.center)).toBe(true);
+    expect(inside(body.truth.toImage(0, body.truth.neckBaseV + 2))).toBe(false);
+  });
+
+  it('needs a visible face', () => {
+    const body = makeSyntheticBody({ build: 'average' });
+    expect(headOutline(body.points.map((p, i) => (i === 0 ? { ...p, v: 0.1 } : p)))).toBeNull();
+    expect(headOutline(null)).toBeNull();
+  });
+});
+
+describe('fitReport', () => {
+  it('scores a good fit as on the body and covering the torso', () => {
+    const body = makeSyntheticBody({ build: 'average', arms: POSES['A-pose'] });
+    const g = loadGarment('tee-coral');
+    const model = measureBody(body.points, body.mask);
+    const fit = fitGarment(model, g.rig);
+    const r = fitReport({ body: model, fit, garment: g, mask: body.mask, width: body.width, height: body.height });
+    // A T-shirt hangs straight from the chest past the waist and its short
+    // sleeves flare, so not every pixel lies on the body.
+    expect(r.onBody.torso).toBeGreaterThanOrEqual(95);
+    expect(r.onBody.sleeves).toBeGreaterThanOrEqual(95);
+    expect(r.coverage).toBeGreaterThanOrEqual(99);
+    expect(r.body.chest).toBeCloseTo((2 * body.truth.halfWidth(model.armpitV)) / body.truth.sw, 1);
   });
 });
 

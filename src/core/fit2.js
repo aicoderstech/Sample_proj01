@@ -82,17 +82,20 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
     const shoulderReach = (side) => Math.abs(body.toLocal(body.shoulderOuter[side].x, body.shoulderOuter[side].y).u);
     // Measured from the outline: the highest level at which the body is at
     // least u wide (the curve of the trapezius), between neck base and joints.
+    // Never above the base of the neck (a jacket collar can widen the outline there).
     const topLineV = (u, side) => {
       if (u <= body.neckHalf) return body.neckBaseV;
       const step = T * 0.005;
-      for (let v = body.neckBaseV; v < 0; v += step) if (body.halfAt(v, side) >= u) return v;
+      const lift = body.neckBaseV * clamp(1 - (u - body.neckHalf) / Math.max(1, shoulderReach(side) - body.neckHalf), 0, 1);
+      for (let v = body.neckBaseV; v < 0; v += step) if (body.halfAt(v, side) >= u) return Math.max(v, lift);
       return 0;
     };
     const strapU = (side) => body.neckHalf + (shoulderReach(side) - body.neckHalf) * 0.45;
 
     const ySh = (kp.shoulderL.y + kp.shoulderR.y) / 2;
     const vSh = straps ? (topLineV(strapU(L), L) + topLineV(strapU(R), R)) / 2 : 0;
-    const vAp = Math.max(body.armpitV, vSh + (yAp - ySh) * sLen);
+    // A loose armhole may hang a little below the armpit, never far below it.
+    const vAp = clamp(vSh + (yAp - ySh) * sLen, body.armpitV, body.armpitV + 0.2 * sw);
     const upperSlope = (vAp - vSh) / Math.max(1, yAp - ySh);
     vOfY = (y) => (y >= yAp ? vAp + (y - yAp) * sLen : vSh + (y - ySh) * upperSlope);
 

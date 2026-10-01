@@ -17,6 +17,18 @@ export function requirePersonFixture() {
   test.skip(!hasPersonFixture(), 'Person photo fixture could not be downloaded (no network?)');
 }
 
+export const ODD_WIDTH_PHOTO = join(FIXTURES, 'person-638w.jpg');
+
+export function requireOddWidthFixture() {
+  let ok = false;
+  try {
+    ok = JSON.parse(readFileSync(join(FIXTURES, 'status.json'), 'utf8')).hasOddWidthPhoto && existsSync(ODD_WIDTH_PHOTO);
+  } catch {
+    ok = false;
+  }
+  test.skip(!ok, 'Odd-width photo fixture could not be downloaded (no network?)');
+}
+
 // MediaPipe logs its own informational messages through console.error
 // (e.g. "INFO: Created TensorFlow Lite XNNPACK delegate for CPU.").
 const BENIGN = [/^INFO: /, /XNNPACK/, /GL Driver Message/, /GroupMarkerNotSet/];

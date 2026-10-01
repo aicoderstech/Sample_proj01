@@ -33,13 +33,67 @@ export function hasSoftwareWebGL() {
   }
 }
 
-/** Copies the first pose and its mask out of a MediaPipe result, then frees it. */
-function readResult(result) {
+const sourceSize = (src) => ({
+  width: src.videoWidth || src.naturalWidth || src.width,
+  height: src.videoHeight || src.naturalHeight || src.height,
+});
+
+/**
+ * MediaPipe's segmentation mask aborts the whole WebAssembly module
+ * ("Check failed: 1 == ChannelSize()") when the image width isn't a multiple
+ * of 4. Such images are copied, stretched by at most 3 pixels, onto a canvas
+ * that is; landmarks are normalized, so they are unaffected.
+ */
+function alignedInput(source, canvas) {
+  const { width, height } = sourceSize(source);
+  const w = Math.ceil(width / 4) * 4;
+  const h = Math.ceil(height / 4) * 4;
+  if (w === width && h === height) return { input: source, width, height };
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  canvas.getContext('2d').drawImage(source, 0, 0, w, h);
+  return { input: canvas, width, height };
+}
+
+/** Nearest-neighbour resample of a mask to the original image size. */
+function resampleMask(data, mw, mh, width, height) {
+  if (mw === width && mh === height) return data;
+  const out = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const row = Math.min(mh - 1, Math.floor(((y + 0.5) * mh) / height)) * mw;
+    for (let x = 0; x < width; x++) out[y * width + x] = data[row + Math.min(mw - 1, Math.floor(((x + 0.5) * mw) / width))];
+  }
+  return out;
+}
+
+/** Torso size in pixels (shoulder width + shoulder-to-hip length): how prominent a person is. */
+function torsoSize(lm, width, height) {
+  const d = (a, b) => Math.hypot((lm[a].x - lm[b].x) * width, (lm[a].y - lm[b].y) * height);
+  const mid = (a, b) => ({ x: (lm[a].x + lm[b].x) / 2, y: (lm[a].y + lm[b].y) / 2 });
+  const s = mid(11, 12);
+  const h = mid(23, 24);
+  return d(11, 12) + Math.hypot((s.x - h.x) * width, (s.y - h.y) * height);
+}
+
+/**
+ * Copies the most prominent pose (the largest torso; in a group photo, the
+ * person in front) and its mask out of a MediaPipe result, then frees it.
+ */
+function readResult(result, width, height) {
   try {
-    const landmarks = result.landmarks[0] || null;
+    let best = 0;
+    for (let i = 1; i < result.landmarks.length; i++) {
+      if (torsoSize(result.landmarks[i], width, height) > torsoSize(result.landmarks[best], width, height)) best = i;
+    }
+    const landmarks = result.landmarks[best] || null;
     let mask = null;
-    const m = result.segmentationMasks?.[0];
-    if (landmarks && m) mask = { data: Float32Array.from(m.getAsFloat32Array()), width: m.width, height: m.height };
+    const m = result.segmentationMasks?.[best];
+    if (landmarks && m) {
+      const data = resampleMask(m.getAsFloat32Array(), m.width, m.height, width, height);
+      mask = { data: Float32Array.from(data), width, height };
+    }
     return landmarks ? { landmarks, mask } : null;
   } finally {
     result.close?.();
@@ -47,11 +101,12 @@ function readResult(result) {
 }
 
 /**
- * @param {{delegate?: 'GPU'|'CPU', model?: 'lite'|'full'}} options  omit delegate to pick automatically
+ * @param {{delegate?: 'GPU'|'CPU', model?: 'lite'|'full', maxPeople?: number}} options
+ *   omit delegate to pick automatically; with maxPeople > 1 the most prominent person is returned
  * @returns {Promise<{backend:string, model:string, detectImage(src):Promise<object|null>, prepareVideo():Promise<void>, detectVideo(src, ts:number):object|null, close():void}>}
  *   detections are { landmarks, mask } (mask: { data, width, height }) or null
  */
-export async function createPoseTracker({ delegate, model = 'lite' } = {}) {
+export async function createPoseTracker({ delegate, model = 'lite', maxPeople = 1 } = {}) {
   const fileset = {
     wasmLoaderPath: assetUrl('mediapipe/wasm/vision_wasm_internal.js'),
     wasmBinaryPath: assetUrl('mediapipe/wasm/vision_wasm_internal.wasm'),
@@ -72,7 +127,7 @@ export async function createPoseTracker({ delegate, model = 'lite' } = {}) {
         landmarker = await PoseLandmarker.createFromOptions(fileset, {
           baseOptions: { modelAssetPath, delegate: d },
           runningMode: 'VIDEO',
-          numPoses: 1,
+          numPoses: maxPeople,
           minPoseDetectionConfidence: 0.5,
           minPosePresenceConfidence: 0.5,
           minTrackingConfidence: 0.5,
@@ -96,12 +151,45 @@ export async function createPoseTracker({ delegate, model = 'lite' } = {}) {
     }
   };
 
+  const scratch = document.createElement('canvas');
+  const padded = document.createElement('canvas');
+  const detectStill = (source) => {
+    const { input, width, height } = alignedInput(source, scratch);
+    return readResult(landmarker.detect(input), width, height);
+  };
   return {
     backend,
     model,
     async detectImage(source) {
       await setMode('IMAGE');
-      return readResult(landmarker.detect(source));
+      const found = detectStill(source);
+      if (found) return found;
+      // A head-and-shoulders photo that fills the frame is often missed by
+      // the person detector: retry with a plain border round it, then map
+      // the result back onto the original photo.
+      const { width, height } = sourceSize(source);
+      const ox = Math.round(width / 2);
+      const oy = Math.round(height / 2);
+      padded.width = width + 2 * ox;
+      padded.height = height + 2 * oy;
+      const ctx = padded.getContext('2d');
+      ctx.fillStyle = '#808080';
+      ctx.fillRect(0, 0, padded.width, padded.height);
+      ctx.drawImage(source, ox, oy, width, height);
+      const r = detectStill(padded);
+      if (!r) return null;
+      const landmarks = r.landmarks.map((p) => ({
+        ...p,
+        x: (p.x * padded.width - ox) / width,
+        y: (p.y * padded.height - oy) / height,
+      }));
+      let mask = null;
+      if (r.mask) {
+        const data = new Float32Array(width * height);
+        for (let y = 0; y < height; y++) data.set(r.mask.data.subarray((y + oy) * padded.width + ox, (y + oy) * padded.width + ox + width), y * width);
+        mask = { data, width, height };
+      }
+      return { landmarks, mask };
     },
     async prepareVideo() {
       await setMode('VIDEO');
@@ -110,7 +198,8 @@ export async function createPoseTracker({ delegate, model = 'lite' } = {}) {
       if (mode !== 'VIDEO') return null;
       const t = Math.max(Math.round(ts), lastTs + 1);
       lastTs = t;
-      return readResult(landmarker.detectForVideo(source, t));
+      const { input, width, height } = alignedInput(source, scratch);
+      return readResult(landmarker.detectForVideo(input, t), width, height);
     },
     close() {
       landmarker.close();
@@ -119,10 +208,10 @@ export async function createPoseTracker({ delegate, model = 'lite' } = {}) {
 }
 
 export function createMockTracker() {
-  const size = (src) => ({
-    width: src.videoWidth || src.naturalWidth || src.width || 640,
-    height: src.videoHeight || src.naturalHeight || src.height || 480,
-  });
+  const size = (src) => {
+    const { width, height } = sourceSize(src);
+    return { width: width || 640, height: height || 480 };
+  };
   const detect = (src, t, motion) => {
     const body = mockBodyFrame(t, { ...size(src), motion });
     return { landmarks: normalizedLandmarks(body), mask: body.mask };

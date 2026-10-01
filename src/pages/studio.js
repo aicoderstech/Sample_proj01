@@ -4,6 +4,7 @@ import { toPixels } from '../core/body.js';
 import { PointSmoother } from '../core/filters.js';
 import { DEFAULT_ADJUST } from '../core/fit.js';
 import { GARMENT_TYPES } from '../core/garment.js';
+import { fitReport } from '../core/fitReport.js';
 import { TryOnRenderer } from '../core/renderer.js';
 import { startCamera, stopCamera } from '../lib/camera.js';
 import { CATALOG, catalogUrl } from '../lib/catalog.js';
@@ -69,6 +70,7 @@ const state = {
   fps: 0,
   fpsFrames: 0,
   fpsSince: 0,
+  lastResult: null,
   lastResultDrawn: false,
   statusKey: '',
 };
@@ -105,7 +107,7 @@ function getTracker(kind = 'live') {
   if (!slot.promise) {
     const mock = params.get('pose') === 'mock';
     const delegate = params.get('delegate') || undefined;
-    slot.promise = (mock ? Promise.resolve(createMockTracker()) : createPoseTracker({ delegate, model }))
+    slot.promise = (mock ? Promise.resolve(createMockTracker()) : createPoseTracker({ delegate, model, maxPeople: kind === 'photo' ? 4 : 1 }))
       .then((tracker) => {
         slot.tracker = tracker;
         return tracker;
@@ -116,6 +118,22 @@ function getTracker(kind = 'live') {
       });
   }
   return slot.promise;
+}
+
+/**
+ * Forgets a tracker after it failed: a WebAssembly abort leaves it unusable,
+ * so the next detection loads a fresh one.
+ */
+function discardTracker(tracker) {
+  for (const [key, slot] of Object.entries(state.trackers)) {
+    if (slot.tracker === tracker) delete state.trackers[key];
+  }
+  if (state.tracker === tracker) state.tracker = null;
+  try {
+    tracker?.close();
+  } catch {
+    // Already dead.
+  }
 }
 
 /** Points the current source at its tracker, loading it if needed. */
@@ -203,8 +221,9 @@ async function usePhoto(file) {
   showStage();
   state.dirty = true;
   setStatus('Finding you in the photo…');
+  let tracker = null;
   try {
-    const tracker = await attachTracker('photo');
+    tracker = await attachTracker('photo');
     state.tracker = tracker;
     const detection = await tracker.detectImage(photo);
     if (state.photo !== photo) return;
@@ -212,7 +231,9 @@ async function usePhoto(file) {
     state.mask = detection?.mask ?? null;
     state.poseFrames += detection ? 1 : 0;
   } catch (err) {
-    setStatus(`Body tracking failed: ${err.message}`, 'error');
+    if (tracker) discardTracker(tracker);
+    console.warn('[mirrorfit] body tracking failed', err);
+    if (state.photo === photo) setStatus('Body tracking failed on this photo. Try another photo, or try again.', 'error');
     return;
   }
   state.dirty = true;
@@ -394,9 +415,15 @@ function tick(now) {
         }
       } catch (err) {
         console.warn('[mirrorfit] pose detection failed', err);
+        // Reload body tracking rather than failing on every frame.
+        discardTracker(state.tracker);
+        state.trackerFailures = (state.trackerFailures || 0) + 1;
+        if (state.trackerFailures <= 3) attachTracker('live').catch(() => {});
+        else setStatus('Body tracking stopped working. Reload the page to try again.', 'error');
       }
     }
     const result = renderer.render(renderOptions(v, dt));
+    state.lastResult = result;
     state.lastResultDrawn = result.drawn;
     state.lastWebgl = !!result.webgl;
     state.lastEngine = result.engine;
@@ -407,6 +434,7 @@ function tick(now) {
     state.dirty = false;
     renderer.resize(state.photo.width, state.photo.height);
     const result = renderer.render(renderOptions(state.photo, 0));
+    state.lastResult = result;
     state.lastResultDrawn = result.drawn;
     state.lastWebgl = !!result.webgl;
     state.lastEngine = result.engine;
@@ -602,6 +630,12 @@ window.__mirrorfit = {
       via: state.garmentMeta?.via,
     },
   }),
+  /** How well the last drawn garment sits on the person's mask (see core/fitReport.js). */
+  fitReport: () => {
+    const r = state.lastResult;
+    if (!r?.fit || !state.mask || !state.garment?.rig) return null;
+    return fitReport({ body: r.body, fit: r.fit, garment: state.garment, mask: state.mask, width: els.canvas.width, height: els.canvas.height });
+  },
 };
 
 // ---------------------------------------------------------------- start

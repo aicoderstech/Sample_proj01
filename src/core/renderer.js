@@ -22,6 +22,32 @@ const SLEEVES = new Set([PART.SLEEVE_LEFT, PART.SLEEVE_RIGHT]);
 
 const offscreen = () => document.createElement('canvas');
 
+/**
+ * The head as an ellipse from the face landmarks: from above the eyes down
+ * to the chin, as wide as the ears. Null when the face isn't visible.
+ */
+export function headOutline(points) {
+  if (!points) return null;
+  const seen = (i) => points[i] && points[i].v >= 0.5;
+  if (![0, 2, 5, 9, 10].every(seen)) return null;
+  const mid = (a, b) => ({ x: (points[a].x + points[b].x) / 2, y: (points[a].y + points[b].y) / 2 });
+  const eyes = mid(2, 5);
+  const mouth = mid(9, 10);
+  const d = { x: mouth.x - eyes.x, y: mouth.y - eyes.y };
+  const len = Math.hypot(d.x, d.y);
+  if (len < 1) return null;
+  const chin = { x: mouth.x + d.x * 0.95, y: mouth.y + d.y * 0.95 };
+  const top = { x: eyes.x - d.x * 2.4, y: eyes.y - d.y * 2.4 };
+  const ears = seen(7) && seen(8) ? Math.hypot(points[7].x - points[8].x, points[7].y - points[8].y) : 0;
+  return {
+    x: (chin.x + top.x) / 2,
+    y: (chin.y + top.y) / 2,
+    rx: Math.max(ears * 0.6, len * 1.7),
+    ry: (len * 4.35) / 2,
+    angle: Math.atan2(d.y, d.x) - Math.PI / 2,
+  };
+}
+
 export class TryOnRenderer {
   /**
    * @param {HTMLCanvasElement} canvas
@@ -143,7 +169,7 @@ export class TryOnRenderer {
         if (!o.physics) this.sways.clear();
         if (o.matchLighting && o.source && this.frameCount++ % 10 === 0) this.updateLighting(o.source, body.frame);
         this.drawGarment(meshes.filter((m) => !SLEEVES.has(m.part)), useGl, body.sw, o.matchLighting);
-        this.drawArms(body, o.mask);
+        this.drawFront(body, o.mask, o.points);
         this.drawGarment(meshes.filter((m) => SLEEVES.has(m.part)), useGl, body.sw, o.matchLighting);
         result = { frame: body.frame, body, fit, drawn: true, webgl: useGl, engine: 'v2' };
         if (o.guides) this.drawGuides(o.points, body, fit);
@@ -195,10 +221,15 @@ export class TryOnRenderer {
     ctx.restore();
   }
 
-  /** Redraws the wearer's forearms and hands (from the background) over the garment body. */
-  drawArms(body, mask) {
+  /**
+   * Redraws what is in front of the garment body, cut from the background
+   * with the person mask: the head (a hood or collar sits behind it) and the
+   * forearms and hands.
+   */
+  drawFront(body, mask, points) {
     const arms = Object.values(body.arms);
-    if (!mask || !arms.length) return;
+    const head = headOutline(points);
+    if (!mask || (!arms.length && !head)) return;
     const w = this.canvas.width;
     const h = this.canvas.height;
     // Person mask as an alpha image.
@@ -237,6 +268,12 @@ export class TryOnRenderer {
       mc.moveTo(c[1].x, c[1].y);
       for (let i = 2; i < c.length; i++) mc.lineTo(c[i].x, c[i].y);
       mc.stroke();
+    }
+    if (head) {
+      mc.fillStyle = '#fff';
+      mc.beginPath();
+      mc.ellipse(head.x, head.y, head.rx, head.ry, head.angle, 0, Math.PI * 2);
+      mc.fill();
     }
     mc.globalCompositeOperation = 'destination-in';
     mc.drawImage(this.person, 0, 0, w, h);

@@ -1,7 +1,7 @@
 // Photo mode with the real MediaPipe body tracker on a real photo.
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { countPixels, PERSON_PHOTO, requirePersonFixture, sampleCanvas, studioState, trackErrors } from './helpers.js';
+import { countPixels, ODD_WIDTH_PHOTO, PERSON_PHOTO, requireOddWidthFixture, requirePersonFixture, sampleCanvas, studioState, trackErrors } from './helpers.js';
 
 const CORAL = 'r > 200 && g > 70 && g < 150 && b < 130 && r - g > 90';
 
@@ -78,7 +78,8 @@ test.describe('studio · photo mode (real body tracking)', () => {
     expect(before).toBeGreaterThan(3000);
     await page.locator('#fit-size').fill('1.4');
     await expect(page.locator('#fit-size + output')).toHaveText('140%');
-    await expect.poll(() => countPixels(page, CORAL)).toBeGreaterThan(before * 1.5);
+    // Wider and longer; the armholes stay near the armpits, so not quite 1.4 x 1.4.
+    await expect.poll(() => countPixels(page, CORAL)).toBeGreaterThan(before * 1.35);
 
     await page.locator('#reset-fit').click();
     await expect(page.locator('#fit-size + output')).toHaveText('100%');
@@ -97,6 +98,34 @@ test.describe('studio · photo mode (real body tracking)', () => {
     const file = readFileSync(await download.path());
     expect(file.subarray(1, 4).toString()).toBe('PNG');
     expect(file.length).toBeGreaterThan(50_000);
+  });
+
+  test('fits every garment on a photo whose width is not a multiple of 4', async ({ page }) => {
+    // MediaPipe's segmentation used to abort ("Check failed: 1 == ChannelSize()")
+    // on such images, killing body tracking for the rest of the session.
+    requireOddWidthFixture();
+    const errors = trackErrors(page);
+    await page.locator('#photo-input').setInputFiles(ODD_WIDTH_PHOTO);
+    await expect.poll(async () => (await studioState(page)).garmentDrawn, { timeout: 45_000 }).toBe(true);
+    const s = await studioState(page);
+    expect(s.canvas.width % 4).not.toBe(0);
+    expect(s.hasMask).toBe(true);
+    for (const id of ['hoodie-grey', 'sundress-sage', 'jeans-indigo']) {
+      await page.locator(`[data-garment-id="${id}"]`).click();
+      await expect.poll(async () => (await studioState(page)).garment?.name).toBeTruthy();
+      await expect.poll(async () => (await studioState(page)).garmentDrawn).toBe(true);
+      // The garment sits on the person: >= 95% of its fabric above the hips
+      // lies on the segmentation mask, and it covers the torso.
+      const report = await page.evaluate(() => window.__mirrorfit.fitReport());
+      expect(report.onBody.torso).toBeGreaterThanOrEqual(95);
+      expect(report.coverage).toBeGreaterThanOrEqual(95);
+    }
+    expect(errors).toEqual([]);
+
+    // And the first photo still works afterwards.
+    await page.locator('#photo-input').setInputFiles(PERSON_PHOTO);
+    await expect.poll(async () => (await studioState(page)).canvas.width).toBe(1000);
+    await expect.poll(async () => (await studioState(page)).garmentDrawn, { timeout: 45_000 }).toBe(true);
   });
 
   test('reports when there is no person in the photo', async ({ page }) => {
