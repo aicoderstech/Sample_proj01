@@ -21,6 +21,7 @@
     "fixtures:garments": "node scripts/render-garment-fixtures.mjs"
   },
   "dependencies": {
+    "@gradio/client": "2.7.1",
     "@mediapipe/tasks-vision": "1.0.1"
   },
   "devDependencies": {

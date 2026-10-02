@@ -24,6 +24,7 @@
       <section class="stage-wrap" aria-label="Try-on preview">
         <div class="stage" id="stage">
           <canvas id="view" aria-label="Live try-on preview"></canvas>
+          <img id="ai-result" class="ai-result" alt="AI try-on: you wearing the garment, drawn by a generative model" hidden />
           <video id="camera" playsinline muted hidden></video>
 
           <div class="stage-empty" id="empty-state">
@@ -43,6 +44,10 @@
             <button class="icon-btn shutter" id="snapshot" type="button">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
               Snapshot
+            </button>
+            <button class="icon-btn" id="ai-toggle" type="button" aria-pressed="false" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.2 5.3L20 9l-4.3 3.8L17 19l-5-3-5 3 1.3-6.2L4 9l5.8-.7z"/></svg>
+              <span>AI result</span>
             </button>
             <button class="icon-btn" id="toggle-mirror" type="button" aria-pressed="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v18M8 7l-4 5 4 5M16 7l4 5-4 5"/></svg>
@@ -72,6 +77,19 @@
             <button class="btn small" type="submit">Load</button>
           </form>
           <p class="garment-info" id="garment-info" aria-live="polite"></p>
+        </section>
+
+        <section class="panel-section" id="ai-section">
+          <h2>AI try-on <span class="badge">photoreal</span></h2>
+          <p class="ai-intro">A free generative try-on model redraws you wearing the garment: how it really drapes, folds and fits your body. It takes about a minute.</p>
+          <p class="ai-notice">To do this, your photo (or the current camera frame) and the garment are sent to a free third-party model on Hugging Face. Nothing is sent until you tick the box and press Generate.</p>
+          <label class="switch"><input type="checkbox" id="ai-consent" /> Send my photo to the AI model</label>
+          <label class="field">Model <select id="ai-model"><option value="">Best available</option></select></label>
+          <div class="row">
+            <button class="btn primary small" id="ai-run" type="button" disabled>Generate AI try-on</button>
+            <button class="btn small ghost" id="ai-cancel" type="button" hidden>Cancel</button>
+          </div>
+          <p class="ai-status" id="ai-status" role="status" aria-live="polite"></p>
         </section>
 
         <section class="panel-section" id="size-section">

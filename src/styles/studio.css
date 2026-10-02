@@ -526,3 +526,52 @@ body.embed .panel {
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- AI try-on ---- */
+.stage .ai-result {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 1;
+  background: #191715;
+}
+
+#ai-section .badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--accent-soft, rgba(232, 90, 64, 0.14));
+  color: var(--accent-hover, #ad2d15);
+  vertical-align: middle;
+}
+
+.ai-intro,
+.ai-notice {
+  margin: 0 0 0.6rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.ai-notice {
+  color: var(--muted);
+}
+
+.ai-status {
+  margin: 0.6rem 0 0;
+  min-height: 1.2em;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.ai-status[data-tone='error'] {
+  color: var(--danger, #c0392b);
+}
+
+.ai-status[data-tone='ok'] {
+  color: var(--ok, #2e7d4f);
+}

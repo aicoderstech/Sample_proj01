@@ -13,6 +13,7 @@ import { extractImageUrl } from '../lib/dropData.js';
 import { loadImage, loadRemoteImage, prepareGarment } from '../lib/garmentLoader.js';
 import { createHumanParser } from '../lib/humanParser.js';
 import { createMockTracker, createPoseTracker } from '../lib/poseTracker.js';
+import { setupAiPanel } from './aiPanel.js';
 
 const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
@@ -89,6 +90,18 @@ const state = {
 
 const smoother = new PointSmoother({ minCutoff: 1.2, beta: 0.01 });
 const renderer = new TryOnRenderer(els.canvas, { webgl: params.get('webgl') !== '0' });
+// AI try-on (a free generative model): the photo or the current camera
+// frame, without the garment drawn on it, and the prepared garment.
+const ai = setupAiPanel({
+  inputs: () => {
+    const g = state.garment;
+    const person = state.source === 'photo' ? state.photo : state.source === 'camera' && els.video.videoWidth ? els.video : null;
+    if (!person || !g || g.readable === false) return null;
+    return { person, garment: g.canvas, kind: g.type === 'bottom' ? 'bottom' : g.type === 'dress' ? 'dress' : 'top', name: state.garmentMeta?.name || '' };
+  },
+  // ?ai=mock: a stand-in model, for tests and offline demos.
+  connect: params.get('ai') === 'mock' ? (await import('../lib/aiTryOnMock.js')).mockConnect() : undefined,
+});
 const embed = params.get('embed') === '1';
 if (embed) document.body.classList.add('embed');
 
@@ -180,9 +193,11 @@ async function attachTracker(kind) {
 function showStage() {
   els.empty.hidden = true;
   els.toolbar.hidden = false;
+  ai.sync();
 }
 
 async function useCamera() {
+  ai.invalidate();
   els.startCamera.disabled = true;
   setStatus('Starting camera…');
   try {
@@ -239,6 +254,7 @@ async function usePhoto(file) {
     URL.revokeObjectURL(url);
   }
   if (state.source === 'camera') stopCamera(els.video);
+  ai.invalidate();
   const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
   const photo = document.createElement('canvas');
   photo.width = Math.round(img.naturalWidth * k);
@@ -287,6 +303,7 @@ async function usePhoto(file) {
 
 function switchSource() {
   if (state.source === 'camera') stopCamera(els.video);
+  ai.invalidate();
   state.liveParser = null;
   state.source = null;
   state.photo = null;
@@ -367,6 +384,7 @@ function hostLabel(url) {
 
 function processGarment() {
   if (!state.garmentImage) return;
+  ai.invalidate();
   try {
     state.garment = prepareGarment(state.garmentImage, {
       removeBg: els.bg.checked,
@@ -394,6 +412,7 @@ function processGarment() {
   const auto = els.type.value === 'auto' ? ' (auto)' : '';
   const bg = g.backgroundRemoved ? ' · background removed' : '';
   setInfo(`${state.garmentMeta.name} · ${typeLabel}${auto}${bg}`);
+  ai.sync();
 }
 
 // ---------------------------------------------------------------- render loop
@@ -645,8 +664,17 @@ const MAX_SNAPSHOTS = 12;
 function takeSnapshot() {
   if (!state.source) return;
   const fail = (msg) => setInfo(msg, 'error');
+  // The AI result when it is on show, else the live view.
+  let source = els.canvas;
+  const aiImage = ai.shownImage();
+  if (aiImage) {
+    source = document.createElement('canvas');
+    source.width = aiImage.naturalWidth;
+    source.height = aiImage.naturalHeight;
+    source.getContext('2d').drawImage(aiImage, 0, 0);
+  }
   try {
-    els.canvas.toBlob((blob) => {
+    source.toBlob((blob) => {
       if (!blob) return fail('Could not create the snapshot.');
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

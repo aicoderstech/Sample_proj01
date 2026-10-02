@@ -1,9 +1,11 @@
-// Production server: serves the built site from dist/ and the image proxy.
+// Production server: serves the built site from dist/, the image proxy and
+// the AI try-on relay.
 //   npm run build && npm start        (PORT=4173, HOST=127.0.0.1 by default)
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createAiTryOnHandler } from './aiTryOn.mjs';
 import { createImageProxy } from './imageProxy.mjs';
 
 const MIME = {
@@ -23,9 +25,10 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-export function createServer({ root, proxyOptions } = {}) {
+export function createServer({ root, proxyOptions, aiOptions } = {}) {
   const distRoot = resolve(root);
   const imageProxy = createImageProxy(proxyOptions);
+  const aiTryOn = createAiTryOnHandler(aiOptions);
 
   function resolveFile(pathname) {
     let decoded;
@@ -44,6 +47,7 @@ export function createServer({ root, proxyOptions } = {}) {
   return http.createServer((req, res) => {
     const { pathname } = new URL(req.url, 'http://localhost');
     if (pathname === '/api/image-proxy') return imageProxy(req, res);
+    if (pathname === '/api/ai-tryon') return aiTryOn(req, res);
     if (pathname === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       return res.end('ok');
