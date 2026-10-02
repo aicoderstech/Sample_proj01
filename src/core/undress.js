@@ -17,7 +17,9 @@
 // skin reads as plastic.
 import { segDist } from './vec.js';
 
-export const LABEL = { BACKGROUND: 0, HAIR: 1, BODY_SKIN: 2, FACE_SKIN: 3, CLOTHES: 4, OTHER: 5 };
+// The parser's labels, and OTHER_PERSON: parsed as a person but outside the
+// wearer's own mask (someone else, or where the two disagree at an edge).
+export const LABEL = { BACKGROUND: 0, HAIR: 1, BODY_SKIN: 2, FACE_SKIN: 3, CLOTHES: 4, OTHER: 5, OTHER_PERSON: 9 };
 
 /**
  * Hole filling by push-pull: average the known pixels down a pyramid, then
@@ -213,6 +215,7 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
   const skinPx = new Uint8Array(w * h);
   const removed = new Uint8Array(w * h);
   const toBg = new Uint8Array(w * h);
+  const armSkin = new Uint8Array(w * h);
   let skin = 0;
   let background = 0;
   for (let y = 0; y < h; y++) {
@@ -288,6 +291,7 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
           out.set([tone[0] * shade, tone[1] * shade, tone[2] * shade, 255], i * 4);
           changed[i] = 1;
           skinPx[i] = 1;
+          armSkin[i] = 1;
           skin++;
         } else if (body.frontal !== false && Math.abs(l.u) > (body.outlineHalfAt ?? body.halfAt)(l.v, l.u < 0 ? 'imageLeft' : 'imageRight')) {
           // Old sleeve outside the arm and outside the body's outline.
@@ -301,20 +305,22 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
       if (Math.abs(l.u) > half + 0.02 * sw) toBg[i] = 1;
     }
   }
-  if (toBg.some((v) => v)) {
+  if (toBg.some((v) => v) || armSkin.some((v) => v)) {
     // The labels are coarser than the picture: background pixels bordering
-    // the removed clothes may still show their edge (a dark fringe). They
-    // are repainted too, and not used as a sample of the background.
+    // the removed clothes, or an old sleeve made into a bare arm, may still
+    // show its edge (a dark fringe), as may edge pixels the wearer's mask
+    // leaves out. They are repainted too, and not used as a sample of the
+    // background.
     const fringe = new Uint8Array(w * h);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const i = y * w + x;
-        if (labels[i] !== LABEL.BACKGROUND || cover[i]) continue;
+        if ((labels[i] !== LABEL.BACKGROUND && labels[i] !== LABEL.OTHER_PERSON) || cover[i]) continue;
         for (let dy = -2; dy <= 2 && !fringe[i]; dy++) {
           for (let dx = -2; dx <= 2; dx++) {
             const xx = x + dx;
             const yy = y + dy;
-            if (xx >= 0 && yy >= 0 && xx < w && yy < h && toBg[yy * w + xx]) {
+            if (xx >= 0 && yy >= 0 && xx < w && yy < h && (toBg[yy * w + xx] || armSkin[yy * w + xx])) {
               fringe[i] = 1;
               break;
             }

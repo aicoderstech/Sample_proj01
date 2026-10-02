@@ -17,7 +17,7 @@ import { NEUTRAL_LOOK, applyLook, estimatePhotoLook } from './photoMatch.js';
 import { hairMask, untuckedTopMask } from './layering.js';
 
 // Pixels of other people in the picture (not one of the parser's labels).
-const LABEL_OTHER_PERSON = 9;
+const LABEL_OTHER_PERSON = LABEL.OTHER_PERSON;
 import { GLMeshRenderer } from './glMesh.js';
 import { drawImageMesh } from './mesh.js';
 import { ClothSway } from './physics.js';

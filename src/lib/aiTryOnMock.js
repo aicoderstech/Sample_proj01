@@ -42,11 +42,12 @@ async function composite(person, garment, kind) {
   ctx.globalAlpha = 0.85;
   ctx.drawImage(g, (c.width - w) / 2, y, w, h);
   ctx.globalAlpha = 1;
+  // Top right: the stage's status message covers the top left.
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(8, 8, 96, 30);
+  ctx.fillRect(c.width - 104, 8, 96, 30);
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 18px sans-serif';
-  ctx.fillText('MOCK', 18, 30);
+  ctx.fillText('MOCK', c.width - 94, 30);
   return c.toDataURL('image/png');
 }
 

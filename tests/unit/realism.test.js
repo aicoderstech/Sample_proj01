@@ -12,6 +12,7 @@ import { isSideOn, lowerBodyInView, poseFolds } from '../../src/core/renderer.js
 import { turnAcross } from '../../src/core/orientation.js';
 import { makeSyntheticBody } from '../../src/core/syntheticBody.js';
 import { LABEL, undress } from '../../src/core/undress.js';
+import { segDist } from '../../src/core/vec.js';
 import { loadGarment, POSES } from '../bench/fitBench.js';
 
 /** A w x h RGBA image from a colour function. */
@@ -298,6 +299,44 @@ describe('dry-run fixes', () => {
     const p = { x: Math.round((fa.elbow.x + fa.wrist.x) / 2), y: Math.round((fa.elbow.y + fa.wrist.y) / 2) };
     expect(cover[p.y * w + p.x]).toBe(1);
     expect(res.skin[p.y * w + p.x]).toBe(1);
+  });
+
+  it('repaints the dark edge an old sleeve leaves on the background beside a bare arm', () => {
+    const body = makeSyntheticBody({ build: 'average', arms: POSES['arms down'] });
+    const { width: w, height: h, truth } = body;
+    const model = measureBody(body.points, body.mask);
+    const chain = model.arms.imageLeft.chain;
+    const armDist = (x, y) => Math.min(...chain.slice(1).map((b, j) => segDist({ x, y }, chain[j], b)));
+    // A wall, the face, and a thin dark sleeve whose edge spills a pixel or
+    // two past the labels (which are coarser than the picture).
+    const sleeve = 0.045 * truth.sw;
+    const labels = new Uint8Array(w * h);
+    const pix = new Uint8ClampedArray(w * h * 4);
+    const fringe = [];
+    for (let i = 0; i < w * h; i++) {
+      const x = (i % w) + 0.5;
+      const y = Math.floor(i / w) + 0.5;
+      const d = armDist(x, y);
+      if (truth.isPerson(x, y) && truth.toLocal(x, y).v < model.neckBaseV - 0.12 * truth.T) {
+        labels[i] = LABEL.FACE_SKIN;
+        pix.set([200, 150, 120, 255], i * 4);
+      } else if (d <= sleeve) {
+        labels[i] = LABEL.CLOTHES;
+        pix.set([20, 30, 60, 255], i * 4);
+      } else if (d <= sleeve + 1.5) {
+        // Some of the edge is left out of the wearer's mask.
+        if (fringe.length % 3 === 0) labels[i] = LABEL.OTHER_PERSON;
+        pix.set([35, 40, 65, 255], i * 4);
+        fringe.push(i);
+      } else pix.set([200, 200, 200, 255], i * 4);
+    }
+    const res = undress({ pix, labels, cover: new Uint8Array(w * h), w, h, k: 1, body: model, type: 'top' });
+    expect(res.background).toBe(0); // the sleeve is all arm: nothing removed
+    expect(fringe.length).toBeGreaterThan(20);
+    for (const i of fringe) {
+      expect(res.changed[i]).toBe(1);
+      expect(res.pix[i * 4]).toBeGreaterThan(150); // the wall, not the sleeve's edge
+    }
   });
 
   it('turns an old collar standing beside the neck into background, and jacket padding outside the body', () => {
