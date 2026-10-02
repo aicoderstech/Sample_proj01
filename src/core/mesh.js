@@ -29,7 +29,7 @@ export function affineFromTriangles(s0, s1, s2, d0, d1, d2) {
  * The way most of a warped grid's triangles wind (+1 or -1: the sign of
  * their area in image coordinates). Where a bend folds the fabric over,
  * the triangles on the fold's far side wind the other way: they are the
- * back of the cloth, hidden under its front, and aren't drawn.
+ * back of the cloth, drawn first so the front lies over them.
  */
 export function dominantWinding(points, cols, rows) {
   let sum = 0;
@@ -88,18 +88,21 @@ export function drawImageMesh(ctx, image, src, points, cols, rows) {
   };
   const S = (i, j) => ({ x: src.x + (src.w * i) / cols, y: src.y + (src.h * j) / rows });
   const front = dominantWinding(points, cols, rows);
-  for (let j = 0; j < rows; j++) {
-    for (let i = 0; i < cols; i++) {
-      const s00 = S(i, j);
-      const s10 = S(i + 1, j);
-      const s01 = S(i, j + 1);
-      const s11 = S(i + 1, j + 1);
-      const d00 = P(i, j);
-      const d10 = P(i + 1, j);
-      const d01 = P(i, j + 1);
-      const d11 = P(i + 1, j + 1);
-      if (winding(d00, d10, d11) === front) drawTriangle(ctx, image, s00, s10, s11, d00, d10, d11);
-      if (winding(d00, d11, d01) === front) drawTriangle(ctx, image, s00, s11, s01, d00, d11, d01);
+  // The back of any fold first, then the front over it.
+  for (const pass of [-front, front]) {
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const s00 = S(i, j);
+        const s10 = S(i + 1, j);
+        const s01 = S(i, j + 1);
+        const s11 = S(i + 1, j + 1);
+        const d00 = P(i, j);
+        const d10 = P(i + 1, j);
+        const d01 = P(i, j + 1);
+        const d11 = P(i + 1, j + 1);
+        if (winding(d00, d10, d11) === pass) drawTriangle(ctx, image, s00, s10, s11, d00, d10, d11);
+        if (winding(d00, d11, d01) === pass) drawTriangle(ctx, image, s00, s11, s01, d00, d11, d01);
+      }
     }
   }
 }

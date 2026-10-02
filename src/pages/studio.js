@@ -417,6 +417,11 @@ function updateStatus(result) {
       : setStatus('Step into view so your shoulders are visible', 'info', 'no-person');
   }
   if (!state.garment) return setStatus('Pick a garment to try on', 'info', 'no-garment');
+  if (result.reason === 'lower-body-out-of-view') {
+    return state.source === 'photo'
+      ? setStatus('Skirts and trousers need your hips and legs in the photo. Try a photo that shows them, or pick a top.', 'error', 'need-legs-photo')
+      : setStatus('Step back so your hips and legs are in view', 'info', 'need-legs');
+  }
   if (state.source === 'photo') return setStatus('Done! Tweak the fit or take a snapshot', 'ok', 'photo-ok');
   return setStatus(`Live · ${state.fps || '–'} fps`, 'ok', `live-${state.fps}`);
 }

@@ -57,7 +57,7 @@ export function asIfFromFront(pts) {
  * The torso is an ellipse (depth / width = 0.72); s is the frontal position
  * across it (-1 .. 1, the outline at +-1). The turn moves the centre line
  * (sternum) towards the side that turns away and foreshortens that half;
- * fabric past where that side curves out of sight is folded onto its edge.
+ * fabric past where that side curves out of sight is eased onto its edge.
  * The near half is stretched to the outline, so the visible side of the
  * body is covered.
  * @param {number} s   frontal position (-1 .. 1; beyond is left unchanged)
@@ -77,8 +77,16 @@ export function turnAcross(s, yaw) {
   const alpha = Math.asin(clamp(s * sign, -1, 1));
   let out;
   if (alpha >= 0) {
+    // The far side: the visible surface ends where it curves out of sight
+    // (the tangent angle). Fabric is eased towards that edge rather than
+    // clamped onto it: clamping collapses a band of the garment to nothing,
+    // which then shows the clothes underneath. alpha' = tangent * (1 - (1 -
+    // u)^p), u = alpha / 90 deg, keeps the order, reaches the edge at the
+    // outline and is unchanged near the centre (p sets the slope there to 1).
     const tangent = Math.atan2(a * ct, b * st);
-    out = x(Math.min(alpha, tangent)) / W;
+    const p = Math.PI / 2 / tangent;
+    const u = alpha / (Math.PI / 2);
+    out = x(tangent * (1 - (1 - u) ** p)) / W;
   } else {
     const x0 = x(0) / W;
     const xe = x(-Math.PI / 2) / W;

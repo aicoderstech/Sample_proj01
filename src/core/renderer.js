@@ -12,7 +12,7 @@ import { fitGarment } from './fit2.js';
 import { PART } from './garmentRig.js';
 import { rasterizeMeshes } from './raster.js';
 import { DEFAULT_LIGHT, estimateLight } from './lighting.js';
-import { undress } from './undress.js';
+import { LABEL, undress } from './undress.js';
 import { NEUTRAL_LOOK, estimatePhotoLook } from './photoMatch.js';
 import { hairMask, untuckedTopMask } from './layering.js';
 
@@ -227,6 +227,18 @@ export function poseFolds(part, rig, body) {
   };
 }
 
+/**
+ * Whether enough of the hips and legs is in the picture to draw a skirt or
+ * trousers: a hip is seen, and there is room below the hip line (a third
+ * of a shoulder width) inside the frame.
+ */
+export function lowerBodyInView(points, body, height) {
+  const hips = [points?.[23], points?.[24]].filter((p) => p && p.v >= 0.3);
+  if (!hips.length) return false;
+  const y = hips.reduce((s, p) => s + p.y, 0) / hips.length;
+  return y + 0.33 * body.sw < height;
+}
+
 export class TryOnRenderer {
   /**
    * @param {HTMLCanvasElement} canvas
@@ -349,6 +361,13 @@ export class TryOnRenderer {
       if (body) {
         // Seen from behind: the garment's back.
         const g = (body.facing === 'back' && o.garment.back?.()) || o.garment;
+        if (g.rig.type === 'bottom' && !lowerBodyInView(o.points, body, h)) {
+          // A skirt or trousers on a photo cut off at the waist would be a
+          // sliver along the bottom edge: draw nothing and say why.
+          this.resetMotion();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          return { frame: body.frame, body, drawn: false, reason: 'lower-body-out-of-view', webgl: useGl, engine: 'v2' };
+        }
         const fit = fitGarment(body, g.rig, o.adjust, { followArms: o.followArms !== false });
         const meshes = fit.parts.map((part) => {
           const cols = useGl ? part.cols : Math.min(part.cols, 12);
@@ -452,31 +471,48 @@ export class TryOnRenderer {
   castShadow(caster, sw, strength) {
     const w = this.canvas.width;
     const h = this.canvas.height;
+    // The shadow is soft: work at reduced size (a canvas blur costs in
+    // proportion to its radius times the area) and scale it back up.
+    const k = Math.min(1, 320 / Math.max(w, h));
+    const sw2 = Math.max(1, Math.round(w * k));
+    const sh2 = Math.max(1, Math.round(h * k));
     this.shade ||= offscreen();
     const s = this.shade;
-    if (s.width !== w || s.height !== h) {
-      s.width = w;
-      s.height = h;
+    if (s.width !== sw2 || s.height !== sh2) {
+      s.width = sw2;
+      s.height = sh2;
     }
     const sc = (this.shadeCtx ||= s.getContext('2d'));
     sc.setTransform(1, 0, 0, 1, 0, 0);
     sc.globalCompositeOperation = 'source-over';
-    sc.clearRect(0, 0, w, h);
+    sc.clearRect(0, 0, sw2, sh2);
     const L = this.light ?? DEFAULT_LIGHT;
+    // The caster at the reduced size first (a shadow drawn straight from a
+    // large source is slow).
+    this.shadeSrc ||= offscreen();
+    const src = this.shadeSrc;
+    if (src.width !== sw2 || src.height !== sh2) {
+      src.width = sw2;
+      src.height = sh2;
+    }
+    const srcCtx = (this.shadeSrcCtx ||= src.getContext('2d'));
+    srcCtx.clearRect(0, 0, sw2, sh2);
+    srcCtx.drawImage(caster, 0, 0, sw2, sh2);
     // Draw only the shadow: the caster itself is placed off the canvas.
-    const away = w + 16;
+    const away = sw2 + 16;
     sc.shadowColor = '#000';
-    sc.shadowBlur = Math.max(2, sw * 0.045);
-    sc.shadowOffsetX = away - L.x * sw * 0.05;
-    sc.shadowOffsetY = -L.y * sw * 0.05;
-    sc.drawImage(caster, -away, 0);
+    sc.shadowBlur = Math.max(1, sw * 0.045 * k);
+    sc.shadowOffsetX = away - L.x * sw * 0.05 * k;
+    sc.shadowOffsetY = -L.y * sw * 0.05 * k;
+    sc.drawImage(src, -away, 0);
     sc.shadowColor = 'transparent';
     sc.globalCompositeOperation = 'destination-in';
-    sc.drawImage(this.person, 0, 0, w, h);
+    sc.drawImage(this.person, 0, 0, sw2, sh2);
     sc.globalCompositeOperation = 'source-over';
     this.ctx.save();
     this.ctx.globalAlpha = strength;
-    this.ctx.drawImage(s, 0, 0);
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.drawImage(s, 0, 0, w, h);
     this.ctx.restore();
   }
 
@@ -570,9 +606,10 @@ export class TryOnRenderer {
   undressPass(body, meshes, g, o, fit = null) {
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const k = Math.min(1, 360 / Math.max(w, h));
-    const lw = Math.max(1, Math.round(w * k));
-    const lh = Math.max(1, Math.round(h * k));
+    // The frame and its labels at reduced size, shared with the front layer.
+    // (Parsing labels everyone in the picture; only the person being dressed,
+    // the pose model's mask, is changed: other people count as scenery.)
+    const { pix, labels, w: lw, h: lh, k } = this.sampleFrame(o);
     this.small ||= offscreen();
     this.smallCtx ||= this.small.getContext('2d', { willReadFrequently: true });
     if (this.small.width !== lw || this.small.height !== lh) {
@@ -582,25 +619,6 @@ export class TryOnRenderer {
     }
     const sc = this.smallCtx;
     sc.globalCompositeOperation = 'source-over';
-    sc.clearRect(0, 0, lw, lh);
-    sc.drawImage(this.bg, 0, 0, lw, lh);
-    const frame = sc.getImageData(0, 0, lw, lh);
-    const pix = frame.data;
-    const p = o.parsing;
-    const m = o.mask;
-    const labels = new Uint8Array(lw * lh);
-    for (let y = 0; y < lh; y++) {
-      const py = Math.min(p.height - 1, Math.floor(((y + 0.5) / lh) * p.height));
-      const my = Math.min(m.height - 1, Math.floor(((y + 0.5) / lh) * m.height));
-      for (let x = 0; x < lw; x++) {
-        const label = p.labels[py * p.width + Math.min(p.width - 1, Math.floor(((x + 0.5) / lw) * p.width))];
-        // Parsing labels everyone in the picture; only the person being
-        // dressed (the pose model's mask) is changed. Other people count as
-        // scenery.
-        const mine = m.data[my * m.width + Math.min(m.width - 1, Math.floor(((x + 0.5) / lw) * m.width))] >= 0.5;
-        labels[y * lw + x] = mine || label === 0 ? label : LABEL_OTHER_PERSON;
-      }
-    }
     // Where the new garment will be.
     const cover = rasterizeMeshes(
       lw,
@@ -648,7 +666,14 @@ export class TryOnRenderer {
       neckline: neck?.polygon ?? null,
       inner: neck?.inner ?? null,
     });
-    this.lastUndress = res ? { skin: res.skin, background: res.background } : null;
+    this.lastUndress = res ? { skin: res.skinCount, background: res.background } : null;
+    // In front of a new top, only skin (the wearer's own, or made from their
+    // old sleeves) is drawn: old clothes left round a forearm go behind it.
+    if ((g.rig?.type ?? g.type) !== 'bottom') {
+      const hide = new Uint8Array(lw * lh);
+      for (let i = 0; i < lw * lh; i++) hide[i] = labels[i] === LABEL.CLOTHES && !res?.skin[i] ? 1 : 0;
+      this.frontHide = { id: this.renderId, w: lw, h: lh, mask: hide };
+    }
     if (!res) return;
     sc.putImageData(new ImageData(res.pix, lw, lh), 0, 0);
     this.bgCtx.imageSmoothingQuality = 'high';
@@ -683,11 +708,33 @@ export class TryOnRenderer {
       const c = t * t;
       curve.push(fit.mapPoint(a * kp.neckL.x + b * ctrl.x + c * kp.neckR.x, a * kp.neckL.y + b * ctrl.y + c * kp.neckR.y, PART.BODY));
     }
-    const top = Math.min(body.toLocal(curve[0].x, curve[0].y).v, body.toLocal(curve[12].x, curve[12].y).v) - 0.5 * body.T;
+    const sleeved = Object.keys(g.rig.sleeves ?? {}).length > 0;
+    const a = g.analysis;
+    if (!sleeved && a?.mask) {
+      // Sleeveless (straps, strapless): the opening is everything above the
+      // garment's whole top edge, out past its sides over the shoulders.
+      curve.length = 0;
+      const { x: bx, y: by, w: bw, h: bh } = a.bbox;
+      for (let i = 0; i <= 24; i++) {
+        const x = Math.round(bx + 1 + ((bw - 3) * i) / 24);
+        let y = by;
+        while (y < by + bh && !a.mask[y * a.width + x]) y++;
+        if (y < by + bh) curve.push(fit.mapPoint(x, y, PART.BODY));
+      }
+      if (curve.length < 3) return null;
+      const out = (p, dir) => {
+        const l = body.toLocal(p.x, p.y);
+        return body.toImage(l.u + dir * 0.45 * body.sw, l.v);
+      };
+      curve.unshift(out(curve[0], -1));
+      curve.push(out(curve[curve.length - 1], 1));
+    }
+    const last = curve[curve.length - 1];
+    const top = Math.min(...curve.map((p) => body.toLocal(p.x, p.y).v)) - 0.5 * body.T;
     const up = (p) => body.toImage(body.toLocal(p.x, p.y).u, top);
-    const polygon = [up(curve[12]), up(curve[0]), ...curve];
+    const polygon = [up(last), up(curve[0]), ...curve];
     let inner = null;
-    if (Object.keys(g.rig.sleeves ?? {}).length) {
+    if (sleeved) {
       this.innerColours ||= new WeakMap();
       inner = this.innerColours.get(g);
       if (!inner) {
@@ -962,6 +1009,19 @@ export class TryOnRenderer {
       mc.ellipse(head.x, head.y, head.rx, head.ry, head.angle, 0, Math.PI * 2);
       mc.fill();
       any = true;
+    }
+    if (this.frontHide?.id === this.renderId) {
+      const f = this.frontHide;
+      const img = new ImageData(f.w, f.h);
+      for (let i = 0; i < f.w * f.h; i++) if (f.mask[i]) img.data[i * 4 + 3] = 255;
+      this.layerMask ||= offscreen();
+      this.layerMask.width = f.w;
+      this.layerMask.height = f.h;
+      this.layerMask.getContext('2d').putImageData(img, 0, 0);
+      mc.globalCompositeOperation = 'destination-out';
+      mc.imageSmoothingEnabled = true;
+      mc.drawImage(this.layerMask, 0, 0, w, h);
+      mc.globalCompositeOperation = 'source-over';
     }
     if (parsing) {
       const f = this.sampleFrame({ parsing, mask });

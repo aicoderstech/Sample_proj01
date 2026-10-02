@@ -227,16 +227,16 @@ void main() {
   }
   float person = texture2D(uPerson, img).a;
   if (uFill > 0.0 && g.a < 0.98 && person > 0.02 && texture2D(uZone, img).a > 0.5) {
-    // Average of the garment's colour around this pixel, the nearest fabric
-    // counting by far the most (a stripe continues, not a blur of the
-    // pattern), smooth rather than streaked: each ring is turned a little
-    // so no rays line up.
+    // Average colour of the nearest ring of fabric around this pixel (a
+    // stripe continues, not a blur of the pattern), smooth rather than
+    // streaked: each ring is turned a little so no rays line up.
     vec4 acc = vec4(0.0);
+    float nearest = 7.0;
     for (int ring = 1; ring <= 6; ring++) {
       float r = uFill * float(ring) / 6.0;
-      float w = 1.0 / float(ring * ring * ring * ring);
-      for (int k = 0; k < 24; k++) {
-        float a = (float(k) + 0.37 * float(ring)) * 0.2617994;
+      float w = 1.0;
+      for (int k = 0; k < 40; k++) {
+        float a = (float(k) + 0.37 * float(ring)) * 0.1570796;
         vec2 dir = vec2(cos(a), sin(a));
         vec4 t = texture2D(uGarment, vUv + dir * r * uTexel);
         if (t.a > 0.9) {
@@ -244,12 +244,16 @@ void main() {
           // outline, which shouldn't be smeared outwards.
           vec4 inner = texture2D(uGarment, vUv + dir * (r + uInset) * uTexel);
           acc += inner.a > 0.9 ? vec4(inner.rgb / inner.a * w, w) : vec4(t.rgb / t.a * w, w);
+          nearest = min(nearest, float(ring));
         }
       }
+      // The nearest ring with fabric decides: no need to look further out.
+      if (acc.a > 0.0) break;
     }
     if (acc.a > 0.0) {
-      // Soft at the wearer's outline, like the photo's own edges.
-      float cover = smoothstep(0.02, 0.6, person);
+      // Soft at the wearer's outline, like the photo's own edges, and fading
+      // out towards the fill's reach (so its limit draws no hard line).
+      float cover = smoothstep(0.02, 0.6, person) * (1.0 - smoothstep(3.5, 6.5, nearest));
       g = g + (1.0 - g.a) * vec4(acc.rgb / acc.a, 1.0) * cover;
     }
   }
@@ -474,9 +478,10 @@ export class GLMeshRenderer {
     gl.uniform2f(this.uRes, width, height);
     if (light) gl.uniform3f(this.uLight, light.x, light.y, light.z);
     // Fabric folded over by a bend shows its back: those triangles wind the
-    // other way and are culled (see dominantWinding). Clip space flips y.
+    // other way (see dominantWinding; clip space flips y). They are drawn
+    // first and the front over them, so the front always wins and a fold
+    // never leaves a hole (culling them left sawtooth gaps).
     gl.enable(gl.CULL_FACE);
-    gl.cullFace(gl.BACK);
     for (const m of meshes) {
       gl.frontFace(dominantWinding(m.points, m.cols, m.rows) > 0 ? gl.CW : gl.CCW);
       gl.bindTexture(gl.TEXTURE_2D, this.texture(m.image));
@@ -515,10 +520,30 @@ export class GLMeshRenderer {
       gl.vertexAttribPointer(this.aUv, 2, gl.FLOAT, false, 0, 0);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.indexBuffer);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, g.idx, gl.DYNAMIC_DRAW);
+      gl.cullFace(gl.FRONT);
+      gl.drawElements(gl.TRIANGLES, g.idx.length, gl.UNSIGNED_SHORT, 0);
+      gl.cullFace(gl.BACK);
       gl.drawElements(gl.TRIANGLES, g.idx.length, gl.UNSIGNED_SHORT, 0);
     }
     gl.disable(gl.CULL_FACE);
-    if (post) this.postProcess(width, height, post);
+    if (post) {
+      // The post pass only needs the garment's surroundings (its bounding
+      // box, grown by the fill's reach): no need to shade the whole canvas.
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (const m of meshes) {
+        for (let i = 0; i < m.points.length; i += 2) {
+          x0 = Math.min(x0, m.points[i]);
+          x1 = Math.max(x1, m.points[i]);
+          y0 = Math.min(y0, m.points[i + 1]);
+          y1 = Math.max(y1, m.points[i + 1]);
+        }
+      }
+      const pad = (post.fill || 0) + (post.soft || 0) + 4;
+      this.postProcess(width, height, post, { x0: x0 - pad, y0: y0 - pad, x1: x1 + pad, y1: y1 + pad });
+    }
     return canvas;
   }
 
@@ -528,12 +553,19 @@ export class GLMeshRenderer {
    *   soft?: number, look?: object, seed?: number}} post
    *   fill / inset / soft in pixels; look: see core/photoMatch.js
    */
-  postProcess(width, height, post) {
+  postProcess(width, height, post, box = null) {
     const { gl } = this;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, width, height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    if (box && Number.isFinite(box.x0)) {
+      // Scissor coordinates run bottom-up.
+      const x = Math.max(0, Math.floor(box.x0));
+      const y = Math.max(0, Math.floor(height - box.y1));
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(x, y, Math.max(0, Math.min(width, Math.ceil(box.x1)) - x), Math.max(0, Math.min(height, Math.ceil(height - box.y0)) - y));
+    }
     gl.disable(gl.BLEND);
     gl.useProgram(this.post);
     gl.activeTexture(gl.TEXTURE0);
@@ -561,6 +593,7 @@ export class GLMeshRenderer {
     gl.enableVertexAttribArray(this.postPos);
     gl.vertexAttribPointer(this.postPos, 2, gl.FLOAT, false, 0, 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.disable(gl.SCISSOR_TEST);
     gl.activeTexture(gl.TEXTURE0);
   }
 }

@@ -1,5 +1,6 @@
 // Making a fitted garment look worn: photo matching, layering (what stays in
-// front of the garment), neckline completion, pose folds, fold-over culling.
+// front of the garment), neckline completion, pose folds, fold-over culling,
+// and the failures found in real-photo dry runs.
 import { describe, expect, it } from 'vitest';
 import { measureBody } from '../../src/core/bodyModel.js';
 import { fitGarment } from '../../src/core/fit2.js';
@@ -7,7 +8,8 @@ import { PART } from '../../src/core/garmentRig.js';
 import { hairMask, untuckedTopMask } from '../../src/core/layering.js';
 import { dominantWinding } from '../../src/core/mesh.js';
 import { estimateNoise, estimatePhotoLook } from '../../src/core/photoMatch.js';
-import { poseFolds } from '../../src/core/renderer.js';
+import { lowerBodyInView, poseFolds } from '../../src/core/renderer.js';
+import { turnAcross } from '../../src/core/orientation.js';
 import { makeSyntheticBody } from '../../src/core/syntheticBody.js';
 import { LABEL, undress } from '../../src/core/undress.js';
 import { loadGarment, POSES } from '../bench/fitBench.js';
@@ -235,5 +237,93 @@ describe('fold-over culling', () => {
     };
     expect(dominantWinding(grid(false), cols, rows)).toBe(1);
     expect(dominantWinding(grid(true), cols, rows)).toBe(-1);
+  });
+});
+
+describe('dry-run fixes', () => {
+  it('eases fabric onto the far edge of a turned body without collapsing it', () => {
+    for (const yaw of [0.6, -0.9, 1.2]) {
+      // Strictly increasing up to the outline: no band of the garment is
+      // squashed to nothing (which showed the clothes underneath).
+      let prev = -Infinity;
+      for (let s = -1; s <= 0.999; s += 0.02) {
+        const t = turnAcross(s, yaw);
+        expect(t).toBeGreaterThan(prev);
+        prev = t;
+      }
+      expect(turnAcross(Math.sign(yaw), yaw)).toBeCloseTo(Math.sign(yaw), 6);
+    }
+  });
+
+  it('only draws skirts and trousers when the hips are in the picture', () => {
+    const body = { sw: 100 };
+    const pts = [];
+    pts[23] = { x: 0, y: 500, v: 0.9 };
+    pts[24] = { x: 0, y: 500, v: 0.9 };
+    expect(lowerBodyInView(pts, body, 900)).toBe(true);
+    expect(lowerBodyInView(pts, body, 520)).toBe(false); // cut off just below the hips
+    pts[23] = { x: 0, y: 500, v: 0.1 };
+    pts[24] = { x: 0, y: 500, v: 0.1 };
+    expect(lowerBodyInView(pts, body, 900)).toBe(false); // hips not seen
+  });
+
+  /** A body in an old long-sleeved top; arms crossed in front of the torso. */
+  function crossedArms() {
+    const body = makeSyntheticBody({ build: 'average', arms: POSES['arms crossed'] });
+    const { width: w, height: h, truth } = body;
+    const model = measureBody(body.points, body.mask);
+    const labels = new Uint8Array(w * h);
+    const pix = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      const x = (i % w) + 0.5;
+      const y = Math.floor(i / w) + 0.5;
+      if (!truth.isPerson(x, y)) continue;
+      const face = truth.toLocal(x, y).v < model.neckBaseV - 0.12 * truth.T;
+      labels[i] = face ? LABEL.FACE_SKIN : LABEL.CLOTHES;
+      pix.set(face ? [200, 150, 120, 255] : [20, 30, 60, 255], i * 4);
+    }
+    return { body, model, labels, pix, w, h, truth };
+  }
+
+  it('bares a forearm crossing in front of the new garment', () => {
+    const { model, labels, pix, w, h, truth } = crossedArms();
+    // The new top covers the whole torso, forearms included.
+    const cover = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const l = truth.toLocal((i % w) + 0.5, Math.floor(i / w) + 0.5);
+      if (l.v > 0 && l.v < truth.T && Math.abs(l.u) <= truth.halfWidth(l.v)) cover[i] = 1;
+    }
+    const res = undress({ pix, labels, cover, w, h, k: 1, body: model, type: 'top' });
+    const fa = truth.arms.imageLeft;
+    const p = { x: Math.round((fa.elbow.x + fa.wrist.x) / 2), y: Math.round((fa.elbow.y + fa.wrist.y) / 2) };
+    expect(cover[p.y * w + p.x]).toBe(1);
+    expect(res.skin[p.y * w + p.x]).toBe(1);
+  });
+
+  it('turns an old collar standing beside the neck into background, and jacket padding outside the body', () => {
+    const { model, labels, pix, w, h, truth } = crossedArms();
+    const sw = truth.sw;
+    const opening = [
+      [-0.9, -0.6],
+      [0.9, -0.6],
+      [0.9, 0.06],
+      [-0.9, 0.06],
+    ].map(([u, v]) => model.toImage(u * sw, model.neckBaseV + v * truth.T));
+    // Old clothes above the neck base beside the neck, and wider than the body.
+    for (let i = 0; i < w * h; i++) {
+      const l = model.toLocal((i % w) + 0.5, Math.floor(i / w) + 0.5);
+      if (l.v > model.neckBaseV - 0.3 * truth.T && l.v < model.neckBaseV + 0.05 * truth.T && Math.abs(l.u) < 0.8 * sw) {
+        labels[i] = LABEL.CLOTHES;
+        pix.set([20, 30, 60, 255], i * 4);
+      }
+    }
+    const res = undress({ pix, labels, cover: new Uint8Array(w * h), w, h, k: 1, body: model, type: 'top', neckline: opening, inner: [90, 30, 20] });
+    const at = (u, v) => {
+      const p = model.toImage(u, v);
+      return Math.floor(p.y) * w + Math.floor(p.x);
+    };
+    expect(res.removed[at(0.3 * sw, model.neckBaseV - 0.2 * truth.T)]).toBe(1); // collar standing up
+    expect(res.removed[at(0.75 * sw, model.neckBaseV + 0.02 * truth.T)]).toBe(1); // padding past the shoulders
+    expect(res.skin[at(0, model.neckBaseV - 0.03 * truth.T)]).toBe(1); // the neck
   });
 });

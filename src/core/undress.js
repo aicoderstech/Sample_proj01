@@ -181,9 +181,10 @@ function mottle(x, y) {
  * @param {Uint8Array} [o.plateKnown]    1 where the plate is known
  * @param {{x:number,y:number}[]} [o.neckline] the new top's neckline opening (image coordinates)
  * @param {number[]} [o.inner]           colour of the inside of its back collar
- * @returns {{pix: Uint8ClampedArray, changed: Uint8Array, removed: Uint8Array, skin: number, background: number}|null}
+ * @returns {{pix: Uint8ClampedArray, changed: Uint8Array, removed: Uint8Array, skin: Uint8Array, skinCount: number, background: number}|null}
  *   pix: the patch (RGBA, alpha 255 where changed); removed: 1 where the
- *   person is now background (no longer part of the outline)
+ *   person is now background (no longer part of the outline); skin: 1 where
+ *   the old clothes became skin
  */
 export function undress({ pix, labels, cover, w, h, k, body, type, plate = null, plateKnown = null, neckline = null, inner = null }) {
   const { T, sw } = body;
@@ -201,12 +202,15 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
     for (let i = 1; i < c.length; i++) {
       const outer = i === 1 ? a.rUOuter ?? a.rU : a.rFOuter ?? a.rF;
       const prof = ARM[Math.min(i - 1, ARM.length - 1)];
-      limbs.push({ a: c[i - 1], b: c[i], r: (t) => prof(t) * sw * build, outer: Math.max(outer, prof(0) * sw * build) * 1.7 });
+      // The renderer draws the arm from halfway down the upper arm to the hand
+      // in front of the new garment's body (see TryOnRenderer.frontLayer).
+      limbs.push({ a: c[i - 1], b: c[i], r: (t) => prof(t) * sw * build, outer: Math.max(outer, prof(0) * sw * build) * 1.7, front: (t) => i >= 2 || t >= 0.55 });
     }
   }
   const tone = skinTone(pix, labels);
   const out = new Uint8ClampedArray(w * h * 4);
   const changed = new Uint8Array(w * h);
+  const skinPx = new Uint8Array(w * h);
   const removed = new Uint8Array(w * h);
   const toBg = new Uint8Array(w * h);
   let skin = 0;
@@ -214,32 +218,9 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      if (labels[i] !== LABEL.CLOTHES || cover[i]) continue;
+      if (labels[i] !== LABEL.CLOTHES) continue;
       const P = { x: (x + 0.5) / k, y: (y + 0.5) / k };
       const l = body.toLocal(P.x, P.y);
-      if (neckline && inside(neckline, P.x, P.y)) {
-        // The neck (a cylinder, darker at its sides and under the jaw), the
-        // chest below the collarbones, or beside the neck the inside of the
-        // new garment's back collar.
-        const neckHalf = (body.neckSkinHalf ?? 0.17 * sw) * 1.08;
-        let c = null;
-        if (Math.abs(l.u) < neckHalf && tone) {
-          const t = l.u / neckHalf;
-          const jaw = Math.min(1, Math.max(0, (l.v - (body.neckBaseV - 0.22 * T)) / (0.1 * T)));
-          const shade = (0.74 + 0.26 * Math.sqrt(Math.max(0, 1 - t * t))) * (0.8 + 0.2 * jaw) * mottle(x, y);
-          c = tone.map((v) => v * shade);
-        } else if (l.v > body.neckBaseV + 0.06 * T && tone) {
-          c = tone.map((v) => v * 0.93 * mottle(x, y));
-        } else if (inner) {
-          c = inner;
-        }
-        if (c) {
-          out.set([c[0], c[1], c[2], 255], i * 4);
-          changed[i] = 1;
-          skin++;
-        }
-        continue;
-      }
       // Which limb (if any) this pixel belongs to, and how far from its axis.
       let limb = null;
       let best = Infinity;
@@ -250,8 +231,52 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
           const dx = s.b.x - s.a.x;
           const dy = s.b.y - s.a.y;
           const t = Math.max(0, Math.min(1, ((P.x - s.a.x) * dx + (P.y - s.a.y) * dy) / (dx * dx + dy * dy || 1)));
-          limb = { d, s, r: s.r(t) };
+          limb = { d, s, r: s.r(t), front: s.front(t) };
         }
+      }
+      // Under the new garment nothing shows, except an arm in front of it
+      // (a forearm across the body): that one is bared too.
+      if (cover[i] && !(limb && limb.front && limb.d <= limb.r)) continue;
+      if (neckline && !(limb && limb.d <= limb.r) && inside(neckline, P.x, P.y)) {
+        // The neck (a cylinder, darker at its sides and under the jaw), the
+        // chest below the collarbones, or beside the neck the inside of the
+        // new garment's back collar.
+        const neckHalf = (body.neckSkinHalf ?? 0.17 * sw) * 1.08;
+        let c = null;
+        const bodyHalf = body.halfAt(Math.max(l.v, body.neckBaseV), l.u < 0 ? 'imageLeft' : 'imageRight');
+        if (Math.abs(l.u) > bodyHalf && Math.abs(l.u) >= neckHalf) {
+          // Outside the body under the old clothes (a jacket's padding);
+          // only measurable facing the camera (turned, the outline includes
+          // the side of the body).
+          if (body.frontal !== false) toBg[i] = 1;
+          continue;
+        }
+        if (Math.abs(l.u) < neckHalf && tone) {
+          const t = l.u / neckHalf;
+          const jaw = Math.min(1, Math.max(0, (l.v - (body.neckBaseV - 0.22 * T)) / (0.1 * T)));
+          const shade = (0.74 + 0.26 * Math.sqrt(Math.max(0, 1 - t * t))) * (0.8 + 0.2 * jaw) * mottle(x, y);
+          c = tone.map((v) => v * shade);
+        } else if (l.v > body.neckBaseV + 0.06 * T && tone) {
+          // Chest and shoulders: rounded, darker towards the sides.
+          const t = Math.min(1, Math.abs(l.u) / bodyHalf);
+          c = tone.map((v) => v * (0.78 + 0.18 * Math.sqrt(1 - t * t)) * mottle(x, y));
+        } else if (l.v > body.neckBaseV - 0.05 * T) {
+          // Just above the neck base: the inside of the back collar, or for a
+          // strappy dress the shoulders.
+          c = inner ?? (tone && tone.map((v) => v * 0.9 * mottle(x, y)));
+        } else {
+          // Higher up beside the neck (an old collar standing up) there is
+          // nothing of the new garment: the scenery behind.
+          if (body.frontal !== false) toBg[i] = 1;
+          continue;
+        }
+        if (c) {
+          out.set([c[0], c[1], c[2], 255], i * 4);
+          changed[i] = 1;
+          if (c !== inner) skinPx[i] = 1;
+          skin++;
+        }
+        continue;
       }
       const inTorsoBand = l.v > -0.1 * T && l.v < T;
       if (limb) {
@@ -262,6 +287,7 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
           const shade = (0.72 + 0.28 * Math.sqrt(Math.max(0, 1 - t * t))) * mottle(x, y);
           out.set([tone[0] * shade, tone[1] * shade, tone[2] * shade, 255], i * 4);
           changed[i] = 1;
+          skinPx[i] = 1;
           skin++;
         } else if (body.frontal !== false && Math.abs(l.u) > (body.outlineHalfAt ?? body.halfAt)(l.v, l.u < 0 ? 'imageLeft' : 'imageRight')) {
           // Old sleeve outside the arm and outside the body's outline.
@@ -323,5 +349,5 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
   }
   if (!skin && !background) return null;
   feather(out, changed, w, h);
-  return { pix: out, changed, removed, skin, background };
+  return { pix: out, changed, removed, skin: skinPx, skinCount: skin, background };
 }

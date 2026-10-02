@@ -123,7 +123,7 @@ describe('old-clothes removal', () => {
     const cover = new Uint8Array(w * h);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (truth.isTorso(x + 0.5, y + 0.5) && truth.toLocal(x + 0.5, y + 0.5).v < 0.8 * truth.T) cover[y * w + x] = 1;
     const res = undress({ pix, labels: parsing.labels, cover, w, h, k: 1, body: model, type: 'top' });
-    expect(res.skin).toBeGreaterThan(200);
+    expect(res.skinCount).toBeGreaterThan(200);
     expect(res.background).toBeGreaterThan(200);
     // A point on the forearm is now skin coloured.
     const fa = truth.arms.imageLeft;

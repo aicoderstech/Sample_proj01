@@ -354,7 +354,7 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
     parts.push({
       part,
       rect,
-      ...gridSize(rect, 220),
+      ...gridSize(rect, 900),
       map,
       normal: limbNormals[side] || torsoNormal,
       limb: { side, root: limb.root, dir: limb.dir, length: limb.length, squash: limbSquash[side] ?? 1, followed: !!limbMaps[side] },
