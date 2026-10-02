@@ -259,6 +259,9 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
   // Limbs: sleeves along the arms, trouser legs along the legs.
   const limbMaps = {};
   const limbNormals = {};
+  // Per limb: how much of the garment's natural length is drawn (below 1 when
+  // it is longer than the arm or leg and bunches up at the end).
+  const limbSquash = {};
   const limbs = rig.type === 'bottom' ? rig.legs : rig.sleeves;
   for (const [side, limb] of Object.entries(limbs)) {
     const bodyLimb = rig.type === 'bottom' ? body.legs[side] : followArms ? body.arms[side] : null;
@@ -282,6 +285,7 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
       const end = spine.length + (rig.type === 'bottom' ? bodyLimb.r * 0.15 : 0);
       limbLen = Math.min(sLen, Math.max(0, end - sbStart) / gRest);
     }
+    limbSquash[side] = sLen > 0 ? limbLen / sLen : 1;
     const firstLen = Math.hypot(bodyLimb.chain[1].x - bodyLimb.chain[0].x, bodyLimb.chain[1].y - bodyLimb.chain[0].y);
     const radius = (sb) => (rig.type === 'bottom' ? bodyLimb.r * (1 - 0.25 * clamp(sb / (firstLen * 2), 0, 1)) : sb < firstLen ? bodyLimb.rU : bodyLimb.rF);
     // Surface normal across the limb (a tube): image-plane part of the
@@ -298,7 +302,14 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
       const sb = bA + (bB - bA) * frac + fromSeam * limbLen;
       const p0 = spine.place(sb, 0, sw * 0.2);
       const p1 = spine.place(sb, 1, sw * 0.2);
-      return { x: (p1.x - p0.x) * across * 0.92, y: (p1.y - p0.y) * across * 0.92 };
+      const tube = { x: (p1.x - p0.x) * across * 0.92, y: (p1.y - p0.y) * across * 0.92 };
+      // Where the limb grows out of the body the surface turns from the
+      // body's into the limb's, as the shape does (see limbMaps): no
+      // shading seam between a trouser seat and its legs.
+      const w = smoothstep(0, FIT2.rootBlend * limb.length, fromSeam);
+      if (w >= 1) return tube;
+      const tn = torsoNormal(gx, gy);
+      return { x: tn.x + (tube.x - tn.x) * w, y: tn.y + (tube.y - tn.y) * w };
     };
     limbMaps[side] = (gx, gy) => {
       const dx = gx - limb.root.x;
@@ -346,6 +357,7 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
       ...gridSize(rect, 220),
       map,
       normal: limbNormals[side] || torsoNormal,
+      limb: { side, root: limb.root, dir: limb.dir, length: limb.length, squash: limbSquash[side] ?? 1, followed: !!limbMaps[side] },
       sway: (gx, gy) => (rig.type === 'bottom' ? 0 : 0.35 * smoothstep(0.6, 1, ((gx - limb.root.x) * limb.dir.x + (gy - limb.root.y) * limb.dir.y) / limb.length)),
     });
   }

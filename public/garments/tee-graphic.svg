@@ -1,25 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 500" width="600" height="500">
+  <!-- Washed-black jersey tee with a screen print. The print is ink on the
+       knit, so it takes the fabric's texture too. -->
   <defs>
-    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2b2d33"/>
-      <stop offset="1" stop-color="#16171b"/>
-    </linearGradient>
+    <filter id="knit" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9 0.45" numOctaves="2" seed="5" result="fine"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.03 0.018" numOctaves="3" seed="9" result="mottle"/>
+      <feComposite in="fine" in2="mottle" operator="arithmetic" k2="0.5" k3="0.5" result="mix"/>
+      <feColorMatrix in="mix" type="matrix" values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 0 0.5" result="grey"/>
+      <feComposite in="SourceGraphic" in2="grey" operator="arithmetic" k1="0.5" k2="0.875"/>
+    </filter>
     <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffd166"/>
-      <stop offset="0.55" stop-color="#ff7b54"/>
-      <stop offset="1" stop-color="#d1495b"/>
+      <stop offset="0" stop-color="#f7c560"/>
+      <stop offset="0.55" stop-color="#f07a52"/>
+      <stop offset="1" stop-color="#c8485a"/>
     </linearGradient>
     <clipPath id="sunClip"><circle cx="300" cy="230" r="78"/></clipPath>
+    <clipPath id="shape">
+      <path d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z"/>
+    </clipPath>
   </defs>
-  <path d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z" fill="url(#body)"/>
-  <path d="M250,30 C262,80 338,80 350,30" fill="none" stroke="#3b3e46" stroke-width="12" stroke-linecap="round"/>
-  <g clip-path="url(#sunClip)">
-    <rect x="200" y="150" width="200" height="170" fill="url(#sun)"/>
-    <rect x="200" y="250" width="200" height="9" fill="#16171b"/>
-    <rect x="200" y="268" width="200" height="8" fill="#16171b"/>
-    <rect x="200" y="285" width="200" height="7" fill="#16171b"/>
-    <rect x="200" y="300" width="200" height="6" fill="#16171b"/>
+  <g filter="url(#knit)">
+    <path d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z" fill="#26272c"/>
+    <g clip-path="url(#shape)" fill="none">
+      <path d="M250,30 C262,80 338,80 350,30" stroke="#303238" stroke-width="13"/>
+      <path d="M250,30 C262,80 338,80 350,30" stroke="#1b1c20" stroke-width="13" stroke-dasharray="1.2 2.2" stroke-opacity="0.6"/>
+      <path d="M244,32 C258,90 342,90 356,32" stroke="#3a3c43" stroke-width="1.3"/>
+      <path d="M160,62 C150,110 146,160 144,200 M440,62 C450,110 454,160 456,200" stroke="#3a3c43" stroke-width="1.4"/>
+      <g stroke="#41444b" stroke-width="1.1" stroke-dasharray="3.2 1.6">
+        <path d="M67.3,126.2 L124.3,208.2 M71.4,123.4 L128.4,205.4"/>
+        <path d="M532.7,126.2 L475.7,208.2 M528.6,123.4 L471.6,205.4"/>
+        <path d="M148,449 Q300,459 452,449 M148,444 Q300,454 452,444"/>
+      </g>
+    </g>
+    <!-- print: slightly worn ink -->
+    <g opacity="0.94">
+      <g clip-path="url(#sunClip)">
+        <rect x="200" y="150" width="200" height="170" fill="url(#sun)"/>
+        <rect x="200" y="250" width="200" height="9" fill="#26272c"/>
+        <rect x="200" y="268" width="200" height="8" fill="#26272c"/>
+        <rect x="200" y="285" width="200" height="7" fill="#26272c"/>
+        <rect x="200" y="300" width="200" height="6" fill="#26272c"/>
+      </g>
+      <text x="300" y="352" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="700" letter-spacing="6" fill="#ebe6dc">GOLDEN HOUR</text>
+    </g>
   </g>
-  <text x="300" y="352" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="700" letter-spacing="6" fill="#f4f1ea">GOLDEN HOUR</text>
-  <path d="M68,148 L122,226 M532,148 L478,226 M150,448 Q300,458 450,448" stroke="#3b3e46" stroke-width="3" stroke-dasharray="7 5" fill="none"/>
 </svg>

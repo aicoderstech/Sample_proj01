@@ -1,21 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 500" width="600" height="500">
+  <!-- Cotton jersey crew-neck tee, lit flat like a product photo (the
+       try-on shades it for the wearer's body and light). -->
   <defs>
-    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ff8a70"/>
-      <stop offset="1" stop-color="#e85a40"/>
-    </linearGradient>
-    <linearGradient id="side" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#000" stop-opacity="0.14"/>
-      <stop offset="0.18" stop-color="#000" stop-opacity="0"/>
-      <stop offset="0.82" stop-color="#000" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000" stop-opacity="0.14"/>
-    </linearGradient>
+    <!-- Jersey: fine heathered knit with a soft, irregular mottle. -->
+    <filter id="knit" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9 0.45" numOctaves="2" seed="7" result="fine"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.035 0.02" numOctaves="3" seed="2" result="mottle"/>
+      <feComposite in="fine" in2="mottle" operator="arithmetic" k2="0.55" k3="0.45" result="mix"/>
+      <feColorMatrix in="mix" type="matrix" values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 0 0.5" result="grey"/>
+      <feComposite in="SourceGraphic" in2="grey" operator="arithmetic" k1="0.36" k2="0.91"/>
+    </filter>
+    <clipPath id="shape">
+      <path d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z"/>
+    </clipPath>
   </defs>
-  <path id="shape" d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z" fill="url(#body)"/>
-  <path d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z" fill="url(#side)"/>
-  <path d="M250,30 C262,80 338,80 350,30" fill="none" stroke="#c9472f" stroke-width="12" stroke-linecap="round"/>
-  <path d="M68,148 L122,226" stroke="#c9472f" stroke-width="3" stroke-dasharray="7 5" fill="none"/>
-  <path d="M532,148 L478,226" stroke="#c9472f" stroke-width="3" stroke-dasharray="7 5" fill="none"/>
-  <path d="M150,448 Q300,458 450,448" stroke="#c9472f" stroke-width="3" stroke-dasharray="7 5" fill="none"/>
-  <path d="M170,240 Q210,300 190,380 M430,240 Q392,300 410,380 M260,300 Q300,330 345,300" stroke="#b5432d" stroke-opacity="0.25" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <g filter="url(#knit)">
+    <path d="M250,30 C262,80 338,80 350,30 L440,62 L542.5,133 L485.5,215 L456,200 L452,462 Q300,472 148,462 L144,200 L114.5,215 L57.5,133 L160,62 Z" fill="#ee7258"/>
+    <g clip-path="url(#shape)" fill="none">
+      <!-- rib collar band: fine vertical ribs, a shade deeper -->
+      <path d="M250,30 C262,80 338,80 350,30" stroke="#dd6249" stroke-width="13"/>
+      <path d="M250,30 C262,80 338,80 350,30" stroke="#c9553e" stroke-width="13" stroke-dasharray="1.2 2.2" stroke-opacity="0.5"/>
+      <path d="M244,32 C258,90 342,90 356,32" stroke="#c85640" stroke-width="1.3" stroke-opacity="0.55"/>
+      <!-- set-in sleeve seams -->
+      <path d="M160,62 C150,110 146,160 144,200 M440,62 C450,110 454,160 456,200" stroke="#c85640" stroke-width="1.4" stroke-opacity="0.45"/>
+      <!-- twin-needle hems: sleeves and body -->
+      <g stroke="#c4523c" stroke-width="1.1" stroke-opacity="0.6" stroke-dasharray="3.2 1.6">
+        <path d="M67.3,126.2 L124.3,208.2 M71.4,123.4 L128.4,205.4"/>
+        <path d="M532.7,126.2 L475.7,208.2 M528.6,123.4 L471.6,205.4"/>
+        <path d="M148,449 Q300,459 452,449 M148,444 Q300,454 452,444"/>
+      </g>
+      <!-- the hem allowance folded inside shows as a faint band -->
+      <path d="M148,456 Q300,466 452,456" stroke="#d9634b" stroke-width="10" stroke-opacity="0.35"/>
+    </g>
+  </g>
 </svg>

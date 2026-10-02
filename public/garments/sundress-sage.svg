@@ -1,27 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 680" width="600" height="680">
+  <!-- Printed cotton-lawn sundress: fitted bodice, gathered skirt. -->
   <defs>
     <pattern id="floral" patternUnits="userSpaceOnUse" width="46" height="46">
-      <rect width="46" height="46" fill="#8fb996"/>
-      <g fill="#fdfbf5">
+      <rect width="46" height="46" fill="#8db694"/>
+      <g fill="#fbf8f0">
         <circle cx="10" cy="10" r="3.2"/><circle cx="15" cy="8" r="3.2"/><circle cx="14" cy="14" r="3.2"/><circle cx="8" cy="15" r="3.2"/>
         <circle cx="33" cy="33" r="3.2"/><circle cx="38" cy="31" r="3.2"/><circle cx="37" cy="37" r="3.2"/><circle cx="31" cy="38" r="3.2"/>
       </g>
-      <circle cx="11.8" cy="11.8" r="2.2" fill="#f5c451"/>
-      <circle cx="34.8" cy="34.8" r="2.2" fill="#f5c451"/>
+      <circle cx="11.8" cy="11.8" r="2.2" fill="#efbe4e"/>
+      <circle cx="34.8" cy="34.8" r="2.2" fill="#efbe4e"/>
     </pattern>
-    <linearGradient id="shade" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#000" stop-opacity="0.12"/>
-      <stop offset="0.3" stop-color="#000" stop-opacity="0"/>
-      <stop offset="0.7" stop-color="#000" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000" stop-opacity="0.12"/>
-    </linearGradient>
+    <filter id="lawn" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9 0.9" numOctaves="1" seed="2" result="fine"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.03 0.02" numOctaves="3" seed="15" result="mottle"/>
+      <feComposite in="fine" in2="mottle" operator="arithmetic" k2="0.5" k3="0.5" result="mix"/>
+      <feColorMatrix in="mix" type="matrix" values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 0 0.5" result="grey"/>
+      <feComposite in="SourceGraphic" in2="grey" operator="arithmetic" k1="0.24" k2="0.94"/>
+    </filter>
+    <clipPath id="skirt"><path d="M186,262 L414,262 L560,640 Q300,672 40,640 Z"/></clipPath>
   </defs>
-  <!-- straps -->
-  <path d="M228,20 L246,20 L250,112 L232,114 Z M354,20 L372,20 L368,114 L350,112 Z" fill="#6f9b77"/>
-  <!-- dress -->
-  <path d="M162,118 Q231,96 300,128 Q369,96 438,118 L438,165 L414,250 L560,640 Q300,672 40,640 L186,250 L162,165 Z" fill="url(#floral)"/>
-  <path d="M162,118 Q231,96 300,128 Q369,96 438,118 L438,165 L414,250 L560,640 Q300,672 40,640 L186,250 L162,165 Z" fill="url(#shade)"/>
-  <!-- waist sash -->
-  <path d="M184,240 L416,240 L412,262 L188,262 Z" fill="#5e8a66"/>
-  <path d="M220,300 Q205,450 150,600 M300,300 L300,640 M380,300 Q395,450 450,600" stroke="#4d7555" stroke-opacity="0.25" stroke-width="5" fill="none"/>
+  <g filter="url(#lawn)">
+    <!-- straps -->
+    <path d="M228,20 L246,20 L250,112 L232,114 Z M354,20 L372,20 L368,114 L350,112 Z" fill="#6e9a76"/>
+    <path d="M237,22 L241,112 M363,22 L359,112" stroke="#5b8563" stroke-width="1" stroke-dasharray="3 1.5"/>
+    <!-- dress -->
+    <path d="M162,118 Q231,96 300,128 Q369,96 438,118 L438,165 L414,250 L560,640 Q300,672 40,640 L186,250 L162,165 Z" fill="url(#floral)"/>
+    <!-- bodice: princess seams and a bound top edge -->
+    <path d="M232,108 Q238,180 228,240 M368,108 Q362,180 372,240" fill="none" stroke="#6b9473" stroke-width="1.3" stroke-opacity="0.7"/>
+    <path d="M162,118 Q231,96 300,128 Q369,96 438,118" fill="none" stroke="#6e9a76" stroke-width="5"/>
+    <!-- gathers under the waist seam: short soft pleats -->
+    <g clip-path="url(#skirt)" stroke="#5c8664" stroke-opacity="0.22" stroke-width="2.4" fill="none" stroke-linecap="round">
+      <path d="M200,264 L196,292 M226,264 L224,296 M252,264 L251,290 M278,264 L278,298 M304,264 L305,292 M330,264 L332,297 M356,264 L359,291 M382,264 L386,296 M406,264 L411,290"/>
+    </g>
+    <!-- waist sash -->
+    <path d="M184,240 L416,240 L412,262 L188,262 Z" fill="#5d8965"/>
+    <path d="M186,244 L414,244 M188,258 L412,258" stroke="#4e7756" stroke-width="1" stroke-dasharray="3 1.5"/>
+    <!-- hem -->
+    <path d="M44,630 Q300,662 556,630" fill="none" stroke="#6b9473" stroke-width="1.1" stroke-dasharray="3 1.5" stroke-opacity="0.8"/>
+  </g>
 </svg>

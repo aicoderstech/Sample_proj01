@@ -10,7 +10,11 @@
 //  - background, where it lies outside the body (bulk: a coat or a loose
 //    top wider than the body the new garment is fitted to): filled from the
 //    surrounding background (push-pull inpainting) or, for live video, from
-//    a clean plate of the background learnt over earlier frames.
+//    a clean plate of the background learnt over earlier frames;
+//  - inside the new top's neckline (an old shirt collar, a tie): the neck,
+//    and beside it the inside of the new garment's back collar, in shadow.
+// Made skin carries a faint mottle, as real skin does at this scale; smooth
+// skin reads as plastic.
 import { segDist } from './vec.js';
 
 export const LABEL = { BACKGROUND: 0, HAIR: 1, BODY_SKIN: 2, FACE_SKIN: 3, CLOTHES: 4, OTHER: 5 };
@@ -111,6 +115,59 @@ export function skinTone(pix, labels) {
 }
 
 /**
+ * Softens the patch's edge over about a pixel each way (the photo's own
+ * edges are never hard): colours are carried one pixel out, and alpha is
+ * the changed mask blurred.
+ */
+function feather(out, changed, w, h) {
+  const src = Uint8ClampedArray.from(out);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      let n = 0;
+      let a = 0;
+      const c = [0, 0, 0];
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          const yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          const j = yy * w + xx;
+          n++;
+          if (!changed[j]) continue;
+          a++;
+          c[0] += src[j * 4];
+          c[1] += src[j * 4 + 1];
+          c[2] += src[j * 4 + 2];
+        }
+      }
+      if (!a) continue;
+      if (!changed[i]) out.set([c[0] / a, c[1] / a, c[2] / a], i * 4);
+      // Fully changed inside; a ramp across the edge.
+      out[i * 4 + 3] = changed[i] ? 255 * Math.min(1, 0.5 + a / n) : (255 * a) / n / 2;
+    }
+  }
+}
+
+/** Point in polygon (even-odd). */
+function inside(poly, x, y) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) c = !c;
+  }
+  return c;
+}
+
+/** Faint, stable mottle (about +-3%) for made skin. */
+function mottle(x, y) {
+  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  const m = Math.sin(Math.floor(x / 3) * 7.13 + Math.floor(y / 3) * 3.71) * 9631.17;
+  return 1 + ((n - Math.floor(n)) - 0.5) * 0.03 + ((m - Math.floor(m)) - 0.5) * 0.035;
+}
+
+/**
  * @param {object} o
  * @param {Uint8ClampedArray} o.pix      RGBA of the frame at low resolution (w x h)
  * @param {Uint8Array} o.labels          parsing labels at w x h
@@ -122,11 +179,13 @@ export function skinTone(pix, labels) {
  * @param {'top'|'dress'|'bottom'} o.type
  * @param {Float32Array} [o.plate]       learnt background (w*h*3) for live video
  * @param {Uint8Array} [o.plateKnown]    1 where the plate is known
+ * @param {{x:number,y:number}[]} [o.neckline] the new top's neckline opening (image coordinates)
+ * @param {number[]} [o.inner]           colour of the inside of its back collar
  * @returns {{pix: Uint8ClampedArray, changed: Uint8Array, removed: Uint8Array, skin: number, background: number}|null}
  *   pix: the patch (RGBA, alpha 255 where changed); removed: 1 where the
  *   person is now background (no longer part of the outline)
  */
-export function undress({ pix, labels, cover, w, h, k, body, type, plate = null, plateKnown = null }) {
+export function undress({ pix, labels, cover, w, h, k, body, type, plate = null, plateKnown = null, neckline = null, inner = null }) {
   const { T, sw } = body;
   // Upper body only: the arms and the torso's bulk. (Bare legs synthesised
   // under a dress or skirt look far less natural than the wearer's own
@@ -158,6 +217,29 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
       if (labels[i] !== LABEL.CLOTHES || cover[i]) continue;
       const P = { x: (x + 0.5) / k, y: (y + 0.5) / k };
       const l = body.toLocal(P.x, P.y);
+      if (neckline && inside(neckline, P.x, P.y)) {
+        // The neck (a cylinder, darker at its sides and under the jaw), the
+        // chest below the collarbones, or beside the neck the inside of the
+        // new garment's back collar.
+        const neckHalf = (body.neckSkinHalf ?? 0.17 * sw) * 1.08;
+        let c = null;
+        if (Math.abs(l.u) < neckHalf && tone) {
+          const t = l.u / neckHalf;
+          const jaw = Math.min(1, Math.max(0, (l.v - (body.neckBaseV - 0.22 * T)) / (0.1 * T)));
+          const shade = (0.74 + 0.26 * Math.sqrt(Math.max(0, 1 - t * t))) * (0.8 + 0.2 * jaw) * mottle(x, y);
+          c = tone.map((v) => v * shade);
+        } else if (l.v > body.neckBaseV + 0.06 * T && tone) {
+          c = tone.map((v) => v * 0.93 * mottle(x, y));
+        } else if (inner) {
+          c = inner;
+        }
+        if (c) {
+          out.set([c[0], c[1], c[2], 255], i * 4);
+          changed[i] = 1;
+          skin++;
+        }
+        continue;
+      }
       // Which limb (if any) this pixel belongs to, and how far from its axis.
       let limb = null;
       let best = Infinity;
@@ -177,7 +259,7 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
           if (!tone) continue;
           // A rounded limb: lit along its axis, darker towards its sides.
           const t = limb.d / limb.r;
-          const shade = 0.72 + 0.28 * Math.sqrt(Math.max(0, 1 - t * t));
+          const shade = (0.72 + 0.28 * Math.sqrt(Math.max(0, 1 - t * t))) * mottle(x, y);
           out.set([tone[0] * shade, tone[1] * shade, tone[2] * shade, 255], i * 4);
           changed[i] = 1;
           skin++;
@@ -194,13 +276,33 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
     }
   }
   if (toBg.some((v) => v)) {
+    // The labels are coarser than the picture: background pixels bordering
+    // the removed clothes may still show their edge (a dark fringe). They
+    // are repainted too, and not used as a sample of the background.
+    const fringe = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (labels[i] !== LABEL.BACKGROUND || cover[i]) continue;
+        for (let dy = -2; dy <= 2 && !fringe[i]; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const xx = x + dx;
+            const yy = y + dy;
+            if (xx >= 0 && yy >= 0 && xx < w && yy < h && toBg[yy * w + xx]) {
+              fringe[i] = 1;
+              break;
+            }
+          }
+        }
+      }
+    }
     const rgb = new Float32Array(w * h * 3);
     const known = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) {
       rgb[i * 3] = pix[i * 4];
       rgb[i * 3 + 1] = pix[i * 4 + 1];
       rgb[i * 3 + 2] = pix[i * 4 + 2];
-      known[i] = labels[i] === LABEL.BACKGROUND ? 1 : 0;
+      known[i] = labels[i] === LABEL.BACKGROUND && !fringe[i] ? 1 : 0;
       if (plate && plateKnown?.[i] && !known[i]) {
         rgb[i * 3] = plate[i * 3];
         rgb[i * 3 + 1] = plate[i * 3 + 1];
@@ -210,13 +312,16 @@ export function undress({ pix, labels, cover, w, h, k, body, type, plate = null,
     }
     pushPullFill(rgb, known, w, h);
     for (let i = 0; i < w * h; i++) {
-      if (!toBg[i]) continue;
+      if (!toBg[i] && !fringe[i]) continue;
       out.set([rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], 255], i * 4);
       changed[i] = 1;
-      removed[i] = 1;
-      background++;
+      if (toBg[i]) {
+        removed[i] = 1;
+        background++;
+      }
     }
   }
   if (!skin && !background) return null;
+  feather(out, changed, w, h);
   return { pix: out, changed, removed, skin, background };
 }

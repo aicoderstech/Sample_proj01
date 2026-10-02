@@ -25,6 +25,28 @@ export function affineFromTriangles(s0, s1, s2, d0, d1, d2) {
   return [a, b, c, d, e, f];
 }
 
+/**
+ * The way most of a warped grid's triangles wind (+1 or -1: the sign of
+ * their area in image coordinates). Where a bend folds the fabric over,
+ * the triangles on the fold's far side wind the other way: they are the
+ * back of the cloth, hidden under its front, and aren't drawn.
+ */
+export function dominantWinding(points, cols, rows) {
+  let sum = 0;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const a = (j * (cols + 1) + i) * 2;
+      const b = a + 2;
+      const d = a + (cols + 1) * 2 + 2;
+      const area = (points[b] - points[a]) * (points[d + 1] - points[a + 1]) - (points[b + 1] - points[a + 1]) * (points[d] - points[a]);
+      sum += Math.sign(area);
+    }
+  }
+  return sum < 0 ? -1 : 1;
+}
+
+const winding = (p0, p1, p2) => Math.sign((p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x));
+
 /** Pushes triangle corners away from the centroid to hide hairline seams. */
 function expand(p0, p1, p2, px) {
   const cx = (p0.x + p1.x + p2.x) / 3;
@@ -65,6 +87,7 @@ export function drawImageMesh(ctx, image, src, points, cols, rows) {
     return { x: points[k], y: points[k + 1] };
   };
   const S = (i, j) => ({ x: src.x + (src.w * i) / cols, y: src.y + (src.h * j) / rows });
+  const front = dominantWinding(points, cols, rows);
   for (let j = 0; j < rows; j++) {
     for (let i = 0; i < cols; i++) {
       const s00 = S(i, j);
@@ -75,8 +98,8 @@ export function drawImageMesh(ctx, image, src, points, cols, rows) {
       const d10 = P(i + 1, j);
       const d01 = P(i, j + 1);
       const d11 = P(i + 1, j + 1);
-      drawTriangle(ctx, image, s00, s10, s11, d00, d10, d11);
-      drawTriangle(ctx, image, s00, s11, s01, d00, d11, d01);
+      if (winding(d00, d10, d11) === front) drawTriangle(ctx, image, s00, s10, s11, d00, d10, d11);
+      if (winding(d00, d11, d01) === front) drawTriangle(ctx, image, s00, s11, s01, d00, d11, d01);
     }
   }
 }

@@ -17,13 +17,26 @@ function clusterColours(data, alpha, k = 5, iterations = 8) {
   const idx = [];
   for (let i = 0; i < n; i++) if (alpha[i]) idx.push(i);
   if (!idx.length) return null;
-  // Initial centres spread over the brightness range.
+  // Initial centres: the median brightness, then repeatedly the colour
+  // farthest from all centres so far (on a sample of pixels), so a small
+  // print on a large plain body gets a centre of its own; spreading them
+  // over the brightness range would spend them all on the body's shades.
   const lum = (i) => 0.3 * data[i * 4] + 0.59 * data[i * 4 + 1] + 0.11 * data[i * 4 + 2];
-  const sorted = idx.slice().sort((a, b) => lum(a) - lum(b));
-  let centres = Array.from({ length: k }, (_, c) => {
-    const i = sorted[Math.floor(((c + 0.5) / k) * sorted.length)];
-    return [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]];
-  });
+  const sample = idx.filter((_, j) => j % Math.max(1, Math.floor(idx.length / 4000)) === 0);
+  const sorted = sample.slice().sort((a, b) => lum(a) - lum(b));
+  const rgbOf = (i) => [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]];
+  let centres = [rgbOf(sorted[sorted.length >> 1])];
+  const nearest = sample.map((i) => (data[i * 4] - centres[0][0]) ** 2 + (data[i * 4 + 1] - centres[0][1]) ** 2 + (data[i * 4 + 2] - centres[0][2]) ** 2);
+  while (centres.length < k) {
+    let far = 0;
+    for (let j = 1; j < sample.length; j++) if (nearest[j] > nearest[far]) far = j;
+    const c = rgbOf(sample[far]);
+    centres.push(c);
+    for (let j = 0; j < sample.length; j++) {
+      const i = sample[j];
+      nearest[j] = Math.min(nearest[j], (data[i * 4] - c[0]) ** 2 + (data[i * 4 + 1] - c[1]) ** 2 + (data[i * 4 + 2] - c[2]) ** 2);
+    }
+  }
   const assign = new Int8Array(n).fill(-1);
   for (let it = 0; it < iterations; it++) {
     const sums = centres.map(() => [0, 0, 0, 0]);

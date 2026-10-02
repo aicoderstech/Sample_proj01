@@ -137,6 +137,10 @@ test.describe('studio · photo mode (real body tracking)', () => {
     expect(s.parsingCounts[4]).toBeGreaterThan(5000);
     expect(s.parsingCounts[2] + s.parsingCounts[3]).toBeGreaterThan(2000);
     expect(s.light).not.toBeNull();
+    // The garment is matched to the photo's tone, tint and grain.
+    expect(s.look.gain).toHaveLength(3);
+    expect(s.look.sat).toBeGreaterThan(0.5);
+    expect(s.look.grain).toBeGreaterThanOrEqual(0);
     // Without a height the size is rough; with it, measured from stature.
     await expect.poll(async () => (await studioState(page)).sizing?.scale.method).toBe('shoulders');
     await page.locator('#height-cm').fill('178');

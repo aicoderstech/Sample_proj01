@@ -1,27 +1,87 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 760" width="600" height="760">
+  <!-- Mid-wash straight jeans, front. Denim: ring-spun yarn gives long
+       vertical slubs; wear fades the thighs and whiskers the crotch. The
+       try-on adds the folds and shading for the wearer's pose and light. -->
   <defs>
-    <linearGradient id="denim" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3a5a8c"/>
-      <stop offset="1" stop-color="#2b4470"/>
-    </linearGradient>
-    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="0.5" stop-color="#fff" stop-opacity="0.12"/>
-      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
+    <filter id="denim" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.55 0.012" numOctaves="3" seed="11" result="slub"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.85 0.85" numOctaves="1" seed="4" result="grain"/>
+      <feComposite in="slub" in2="grain" operator="arithmetic" k2="0.7" k3="0.3" result="mix"/>
+      <feColorMatrix in="mix" type="matrix" values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 0 0.5" result="grey"/>
+      <feComposite in="SourceGraphic" in2="grey" operator="arithmetic" k1="0.7" k2="0.825"/>
+    </filter>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="26"/></filter>
+    <filter id="whisker" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <radialGradient id="rivet" cx="0.35" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#f3d39a"/>
+      <stop offset="0.6" stop-color="#b98142"/>
+      <stop offset="1" stop-color="#6e4520"/>
+    </radialGradient>
+    <radialGradient id="button" cx="0.35" cy="0.3" r="0.75">
+      <stop offset="0" stop-color="#f4f1ea"/>
+      <stop offset="0.55" stop-color="#a9a49a"/>
+      <stop offset="1" stop-color="#5c5850"/>
+    </radialGradient>
+    <clipPath id="shape">
+      <path d="M185,20 L415,20 L418,60 L432,200 L436,740 L338,740 L306,262 Q300,252 294,262 L262,740 L164,740 L168,200 L182,60 Z"/>
+    </clipPath>
   </defs>
-  <path d="M185,20 L415,20 L418,60 L432,200 L436,740 L338,740 L306,262 Q300,252 294,262 L262,740 L164,740 L168,200 L182,60 Z" fill="url(#denim)"/>
-  <path d="M185,300 L255,300 L250,700 L170,700 Z M345,300 L415,300 L430,700 L350,700 Z" fill="url(#fade)"/>
-  <path d="M182,60 L418,60" stroke="#1f3355" stroke-width="3"/>
-  <g stroke="#d9a441" stroke-width="2" stroke-dasharray="6 4" fill="none">
-    <path d="M186,56 L414,56"/>
-    <path d="M300,62 L300,220 Q300,236 286,238"/>
-    <path d="M190,70 Q235,95 250,140"/>
-    <path d="M410,70 Q365,95 350,140"/>
-    <path d="M168,736 L262,736 M338,736 L436,736"/>
+  <g filter="url(#denim)">
+    <path d="M185,20 L415,20 L418,60 L432,200 L436,740 L338,740 L306,262 Q300,252 294,262 L262,740 L164,740 L168,200 L182,60 Z" fill="#33507f"/>
+    <g clip-path="url(#shape)">
+      <!-- wear: faded thighs and knees -->
+      <g fill="#c9d8ee" filter="url(#soft)">
+        <ellipse cx="226" cy="330" rx="34" ry="95" opacity="0.32"/>
+        <ellipse cx="374" cy="330" rx="34" ry="95" opacity="0.32"/>
+        <ellipse cx="220" cy="540" rx="26" ry="50" opacity="0.2"/>
+        <ellipse cx="380" cy="540" rx="26" ry="50" opacity="0.2"/>
+      </g>
+      <!-- whiskers fanning from the crotch -->
+      <g stroke="#d6e2f3" stroke-linecap="round" fill="none" filter="url(#whisker)">
+        <path d="M287,234 Q256,227 222,214" stroke-width="4.5" opacity="0.38"/>
+        <path d="M289,247 Q252,242 208,238" stroke-width="3.6" opacity="0.3"/>
+        <path d="M288,262 Q262,262 230,266" stroke-width="3" opacity="0.22"/>
+        <path d="M313,232 Q340,224 372,210" stroke-width="4" opacity="0.34"/>
+        <path d="M311,246 Q350,240 392,233" stroke-width="3.8" opacity="0.3"/>
+        <path d="M312,261 Q336,260 362,263" stroke-width="3" opacity="0.2"/>
+      </g>
+      <!-- waistband: a separate, slightly deeper band -->
+      <path d="M182,60 L418,60 L415,20 L185,20 Z" fill="#2b4572"/>
+      <path d="M182,61 L418,61" stroke="#1d3254" stroke-width="2.4"/>
+      <!-- fly seam -->
+      <path d="M300,62 L300,236" stroke="#1d3254" stroke-width="2"/>
+      <!-- front pockets and coin pocket edges -->
+      <g stroke="#1f3559" stroke-width="2.2" fill="none">
+        <path d="M236,62 Q238,128 170,150"/>
+        <path d="M364,62 Q362,128 430,150"/>
+        <path d="M201,62 L201,104 L229,104 L229,62"/>
+      </g>
+      <!-- topstitching (twin, contrast thread) -->
+      <g stroke="#c99a48" stroke-width="1.4" stroke-dasharray="4.5 2.2" fill="none" opacity="0.9">
+        <path d="M186,26 L414,26 M184,55 L416,55"/>
+        <path d="M313,64 L313,196 Q313,216 297,224 M318,64 L318,198 Q318,222 299,231"/>
+        <path d="M242,62 Q244,134 171,158 M247,62 Q249,140 172,165"/>
+        <path d="M358,62 Q356,134 429,158 M353,62 Q351,140 428,165"/>
+        <path d="M203,90 L227,90 M203,94 L227,94"/>
+        <path d="M164,730 L262,730 M164,725 L262,725 M338,730 L436,730 M338,725 L436,725"/>
+        <path d="M296,262 L264,738 M304,262 L336,738" opacity="0.5"/>
+      </g>
+      <!-- belt loops -->
+      <g fill="#2e4a78" stroke="#1d3254" stroke-width="1.2">
+        <rect x="199" y="15" width="11" height="49" rx="2"/>
+        <rect x="390" y="15" width="11" height="49" rx="2"/>
+      </g>
+      <g stroke="#c99a48" stroke-width="1.3" opacity="0.9">
+        <path d="M200,20 L209,20 M200,59 L209,59 M391,20 L400,20 M391,59 L400,59"/>
+      </g>
+    </g>
   </g>
-  <g fill="#1f3355">
-    <rect x="205" y="16" width="10" height="46" rx="2"/><rect x="295" y="16" width="10" height="46" rx="2"/><rect x="385" y="16" width="10" height="46" rx="2"/>
+  <!-- metal: button and rivets (not textured) -->
+  <circle cx="300" cy="40" r="9" fill="url(#button)" stroke="#4a463f" stroke-width="1"/>
+  <circle cx="300" cy="40" r="4.5" fill="none" stroke="#7a756b" stroke-width="1"/>
+  <g fill="url(#rivet)">
+    <circle cx="237" cy="66" r="3.4"/><circle cx="174" cy="150" r="3.4"/>
+    <circle cx="363" cy="66" r="3.4"/><circle cx="426" cy="150" r="3.4"/>
+    <circle cx="203" cy="66" r="2.6"/><circle cx="227" cy="66" r="2.6"/>
   </g>
-  <circle cx="300" cy="40" r="7" fill="#c9a24a"/>
 </svg>
