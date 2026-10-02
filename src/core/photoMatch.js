@@ -105,3 +105,15 @@ export function estimateNoise({ data, width, height }) {
   // Some of it is fine texture rather than noise: count three quarters.
   return Math.min(0.025, (0.75 * 1.4826 * med) / Math.sqrt(20));
 }
+
+/**
+ * A colour (0-255 RGB) as the photo would show it: the same grade as the
+ * post pass in glMesh.js (tint and exposure, black level, saturation).
+ */
+export function applyLook(rgb, look) {
+  if (!look) return rgb;
+  const c = rgb.map((v, i) => Math.min(1, (v / 255) * look.gain[i]));
+  const lifted = c.map((v) => look.lift + v * (1 - look.lift));
+  const luma = LUMA[0] * lifted[0] + LUMA[1] * lifted[1] + LUMA[2] * lifted[2];
+  return lifted.map((v) => Math.round(Math.min(1, Math.max(0, luma + (v - luma) * look.sat)) * 255));
+}

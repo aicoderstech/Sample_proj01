@@ -13,7 +13,7 @@ import { PART } from './garmentRig.js';
 import { rasterizeMeshes } from './raster.js';
 import { DEFAULT_LIGHT, estimateLight } from './lighting.js';
 import { LABEL, undress } from './undress.js';
-import { NEUTRAL_LOOK, estimatePhotoLook } from './photoMatch.js';
+import { NEUTRAL_LOOK, applyLook, estimatePhotoLook } from './photoMatch.js';
 import { hairMask, untuckedTopMask } from './layering.js';
 
 // Pixels of other people in the picture (not one of the parser's labels).
@@ -228,6 +228,17 @@ export function poseFolds(part, rig, body) {
 }
 
 /**
+ * Seen from the side (or nearly): the shoulder joints are much closer
+ * together than the torso is long. A front-view garment can't be fitted to
+ * that pose.
+ */
+export function isSideOn(body) {
+  // Torso length / shoulder width: about 1.5 facing the camera, 2 turned
+  // 3/4, near 3 side-on.
+  return body.T > 2.4 * body.sw;
+}
+
+/**
  * Whether enough of the hips and legs is in the picture to draw a skirt or
  * trousers: a hip is seen, and there is room below the hip line (a third
  * of a shoulder width) inside the frame.
@@ -361,6 +372,13 @@ export class TryOnRenderer {
       if (body) {
         // Seen from behind: the garment's back.
         const g = (body.facing === 'back' && o.garment.back?.()) || o.garment;
+        if (isSideOn(body)) {
+          // Seen from the side the shoulders overlap: the garment, scaled by
+          // them, would be a patch on one shoulder. Draw nothing; say why.
+          this.resetMotion();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          return { frame: body.frame, body, drawn: false, reason: 'side-on', webgl: useGl, engine: 'v2' };
+        }
         if (g.rig.type === 'bottom' && !lowerBodyInView(o.points, body, h)) {
           // A skirt or trousers on a photo cut off at the waist would be a
           // sliver along the bottom edge: draw nothing and say why.
@@ -381,7 +399,9 @@ export class TryOnRenderer {
         if (o.mask) this.updatePerson(o.mask);
         this.light = o.shading === false ? null : this.sceneLight(o);
         // Take off what the wearer has on where the new garment won't cover it.
-        if (o.parsing && o.undress !== false) this.undressPass(body, meshes, g, o, fit);
+        const matching = useGl && o.realism !== false && o.photoMatch !== false;
+        const look = matching ? this.photoLook(o, body) : null;
+        if (o.parsing && o.undress !== false) this.undressPass(body, meshes, g, o, fit, look);
         // Post pass (WebGL): edges extended to the wearer's outline, and the
         // garment matched to the photo (tone, tint, softness, grain).
         let post = null;
@@ -391,7 +411,7 @@ export class TryOnRenderer {
           if (o.mask && realism) post.fill = this.realismInputs(body.sw).fill;
           if (o.mask && realism && typeof o.realism === 'object' && o.realism.fill != null) post.fill = o.realism.fill * body.sw;
           if (realism && o.photoMatch !== false) {
-            post.look = this.photoLook(o, body);
+            post.look = look;
             post.soft = 0.6;
           }
         }
@@ -603,7 +623,7 @@ export class TryOnRenderer {
    * over the background. Removed bulk is also taken out of the person mask,
    * so the garment's edges stop at the body.
    */
-  undressPass(body, meshes, g, o, fit = null) {
+  undressPass(body, meshes, g, o, fit = null, look = null) {
     const w = this.canvas.width;
     const h = this.canvas.height;
     // The frame and its labels at reduced size, shared with the front layer.
@@ -664,7 +684,9 @@ export class TryOnRenderer {
       plate: o.temporal ? this.plate : null,
       plateKnown: o.temporal ? this.plateKnown : null,
       neckline: neck?.polygon ?? null,
-      inner: neck?.inner ?? null,
+      // The inside of the collar is garment, so it is matched to the photo
+      // like the rest of it (in a black-and-white photo it is grey too).
+      inner: neck?.inner ? applyLook(neck.inner, look) : null,
     });
     this.lastUndress = res ? { skin: res.skinCount, background: res.background } : null;
     // In front of a new top, only skin (the wearer's own, or made from their

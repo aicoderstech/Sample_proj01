@@ -7,8 +7,8 @@ import { fitGarment } from '../../src/core/fit2.js';
 import { PART } from '../../src/core/garmentRig.js';
 import { hairMask, untuckedTopMask } from '../../src/core/layering.js';
 import { dominantWinding } from '../../src/core/mesh.js';
-import { estimateNoise, estimatePhotoLook } from '../../src/core/photoMatch.js';
-import { lowerBodyInView, poseFolds } from '../../src/core/renderer.js';
+import { applyLook, estimateNoise, estimatePhotoLook, NEUTRAL_LOOK } from '../../src/core/photoMatch.js';
+import { isSideOn, lowerBodyInView, poseFolds } from '../../src/core/renderer.js';
 import { turnAcross } from '../../src/core/orientation.js';
 import { makeSyntheticBody } from '../../src/core/syntheticBody.js';
 import { LABEL, undress } from '../../src/core/undress.js';
@@ -325,5 +325,20 @@ describe('dry-run fixes', () => {
     expect(res.removed[at(0.3 * sw, model.neckBaseV - 0.2 * truth.T)]).toBe(1); // collar standing up
     expect(res.removed[at(0.75 * sw, model.neckBaseV + 0.02 * truth.T)]).toBe(1); // padding past the shoulders
     expect(res.skin[at(0, model.neckBaseV - 0.03 * truth.T)]).toBe(1); // the neck
+  });
+
+  it('declines side-on poses but fits bodies turned three-quarters', () => {
+    expect(isSideOn({ T: 150, sw: 100 })).toBe(false); // facing the camera
+    expect(isSideOn({ T: 200, sw: 100 })).toBe(false); // turned 3/4
+    expect(isSideOn({ T: 290, sw: 100 })).toBe(true); // side-on: shoulders overlap
+  });
+
+  it('grades a garment colour like the photo (the inside of a collar in a black-and-white photo is grey)', () => {
+    expect(applyLook([200, 40, 40], NEUTRAL_LOOK)).toEqual([200, 40, 40]);
+    const grey = applyLook([200, 40, 40], { lift: 0, gain: [1, 1, 1], sat: 0, grain: 0 });
+    expect(grey[0]).toBe(grey[1]);
+    expect(grey[1]).toBe(grey[2]);
+    const hazy = applyLook([0, 0, 0], { lift: 0.1, gain: [1, 1, 1], sat: 1, grain: 0 });
+    expect(hazy[0]).toBeGreaterThan(20);
   });
 });

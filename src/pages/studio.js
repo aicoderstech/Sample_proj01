@@ -417,6 +417,11 @@ function updateStatus(result) {
       : setStatus('Step into view so your shoulders are visible', 'info', 'no-person');
   }
   if (!state.garment) return setStatus('Pick a garment to try on', 'info', 'no-garment');
+  if (result.reason === 'side-on') {
+    return state.source === 'photo'
+      ? setStatus('This photo is side-on. Use a photo where you face the camera (turned a little is fine).', 'error', 'side-on-photo')
+      : setStatus('Turn to face the camera', 'info', 'side-on');
+  }
   if (result.reason === 'lower-body-out-of-view') {
     return state.source === 'photo'
       ? setStatus('Skirts and trousers need your hips and legs in the photo. Try a photo that shows them, or pick a top.', 'error', 'need-legs-photo')
