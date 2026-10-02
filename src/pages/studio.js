@@ -5,17 +5,23 @@ import { PointSmoother } from '../core/filters.js';
 import { DEFAULT_ADJUST } from '../core/fit.js';
 import { GARMENT_TYPES } from '../core/garment.js';
 import { fitReport } from '../core/fitReport.js';
+import { bodyMeasurements, chartFor, fitVerdicts, measureScale, recommendSize, sizeFit } from '../core/sizing.js';
 import { TryOnRenderer } from '../core/renderer.js';
 import { startCamera, stopCamera } from '../lib/camera.js';
 import { CATALOG, catalogUrl } from '../lib/catalog.js';
 import { extractImageUrl } from '../lib/dropData.js';
 import { loadImage, loadRemoteImage, prepareGarment } from '../lib/garmentLoader.js';
+import { createHumanParser } from '../lib/humanParser.js';
 import { createMockTracker, createPoseTracker } from '../lib/poseTracker.js';
 
 const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
 const els = {
   canvas: $('view'),
+  heightCm: $('height-cm'),
+  sizeAdvice: $('size-advice'),
+  sizeChips: $('size-chips'),
+  sizeMeasures: $('size-measures'),
   video: $('camera'),
   empty: $('empty-state'),
   status: $('status'),
@@ -55,6 +61,9 @@ const state = {
   photo: null,
   points: null,
   mask: null,
+  parsing: null, // per-pixel hair / skin / clothes labels (see lib/humanParser.js)
+  parser: null, // Promise of the human parser, loaded on first use
+  liveParser: null, // the parser, once ready for video
   lastEngine: null,
   garment: null,
   garmentImage: null,
@@ -71,6 +80,9 @@ const state = {
   fpsFrames: 0,
   fpsSince: 0,
   lastResult: null,
+  heightCm: null, // the wearer's height, for measurements (remembered)
+  sizeChoice: 'auto', // 'auto' = fitted to the body, or a size drawn true to its measurements
+  sizing: null, // latest { kind, chart, scale, measures, rec }
   lastResultDrawn: false,
   statusKey: '',
 };
@@ -107,7 +119,7 @@ function getTracker(kind = 'live') {
   if (!slot.promise) {
     const mock = params.get('pose') === 'mock';
     const delegate = params.get('delegate') || undefined;
-    slot.promise = (mock ? Promise.resolve(createMockTracker()) : createPoseTracker({ delegate, model, maxPeople: kind === 'photo' ? 4 : 1 }))
+    slot.promise = (mock ? Promise.resolve(createMockTracker({ back: params.get('view') === 'back' })) : createPoseTracker({ delegate, model, maxPeople: kind === 'photo' ? 4 : 1 }))
       .then((tracker) => {
         slot.tracker = tracker;
         return tracker;
@@ -134,6 +146,18 @@ function discardTracker(tracker) {
   } catch {
     // Already dead.
   }
+}
+
+/** The human parser (clothes / skin / hair labels), loaded on first use. */
+function getParser() {
+  if (!state.parser) {
+    const delegate = params.get('delegate') || undefined;
+    state.parser = createHumanParser({ delegate }).catch((err) => {
+      state.parser = null;
+      throw err;
+    });
+  }
+  return state.parser;
 }
 
 /** Points the current source at its tracker, loading it if needed. */
@@ -185,6 +209,16 @@ async function useCamera() {
     await attachTracker('live');
   } catch (err) {
     setStatus(`Body tracking failed to load: ${err.message}`, 'error');
+    return;
+  }
+  // Clothes / skin parsing for live video, loaded in the background.
+  if (params.get('parsing') !== '0' && params.get('pose') !== 'mock') {
+    getParser()
+      .then(async (parser) => {
+        await parser.prepareVideo();
+        if (state.source === 'camera') state.liveParser = parser;
+      })
+      .catch((err) => console.warn('[mirrorfit] human parsing unavailable', err));
   }
 }
 
@@ -212,6 +246,7 @@ async function usePhoto(file) {
   photo.getContext('2d').drawImage(img, 0, 0, photo.width, photo.height);
 
   state.source = 'photo';
+  state.liveParser = null;
   state.photo = photo;
   state.points = null;
   state.mask = null;
@@ -229,7 +264,18 @@ async function usePhoto(file) {
     if (state.photo !== photo) return;
     state.points = detection ? toPixels(detection.landmarks, photo.width, photo.height) : null;
     state.mask = detection?.mask ?? null;
+    state.parsing = null;
     state.poseFrames += detection ? 1 : 0;
+    if (detection && params.get('parsing') !== '0') {
+      state.dirty = true; // show the fit right away; parsing refines it
+      try {
+        const parsing = await (await getParser()).parse(photo);
+        if (state.photo === photo) state.parsing = parsing;
+      } catch (err) {
+        console.warn('[mirrorfit] human parsing unavailable', err);
+        state.parser = null;
+      }
+    }
   } catch (err) {
     if (tracker) discardTracker(tracker);
     console.warn('[mirrorfit] body tracking failed', err);
@@ -241,10 +287,12 @@ async function usePhoto(file) {
 
 function switchSource() {
   if (state.source === 'camera') stopCamera(els.video);
+  state.liveParser = null;
   state.source = null;
   state.photo = null;
   state.points = null;
   state.mask = null;
+  state.parsing = null;
   els.empty.hidden = false;
   els.toolbar.hidden = true;
   setStatus('');
@@ -373,11 +421,11 @@ function updateStatus(result) {
   return setStatus(`Live · ${state.fps || '–'} fps`, 'ok', `live-${state.fps}`);
 }
 
-/** ?realism=0 turns the realism pass off; ?fill=…&shade=… tune it (debugging). */
+/** ?realism=0 turns the edge fill off; ?fill=… tunes it (debugging). */
 function realismOption() {
   if (params.get('realism') === '0') return false;
   const tune = {};
-  for (const k of ['fill', 'shade']) if (params.has(k)) tune[k] = Number(params.get(k));
+  if (params.has('fill')) tune.fill = Number(params.get('fill'));
   return Object.keys(tune).length ? tune : true;
 }
 
@@ -387,7 +435,7 @@ function renderOptions(source, dt) {
     mirror: state.mirror,
     points: state.points,
     garment: state.garment,
-    adjust: state.adjust,
+    adjust: sizedAdjust(),
     dt,
     physics: els.physics.checked && state.source === 'camera',
     followArms: els.arms.checked,
@@ -396,6 +444,10 @@ function renderOptions(source, dt) {
     guides: els.skeleton.checked,
     engine: params.get('engine') || undefined,
     realism: realismOption(),
+    shading: params.get('shading') !== '0',
+    undress: params.get('undress') !== '0',
+    turn: params.get('turn') !== '0',
+    parsing: state.parsing,
     matchLighting: true,
   };
 }
@@ -417,9 +469,18 @@ function tick(now) {
           state.points = smoother.smooth(toPixels(detection.landmarks, v.videoWidth, v.videoHeight), now / 1000);
           state.mask = detection.mask;
           state.poseFrames++;
+          // Clothes / skin labels every few frames (they change slowly).
+          if (state.liveParser && state.poseFrames % 6 === 0) {
+            try {
+              state.parsing = state.liveParser.parseVideo(v, now);
+            } catch {
+              state.liveParser = null;
+            }
+          }
         } else {
           state.points = null;
           state.mask = null;
+          state.parsing = null;
           smoother.reset();
         }
       } catch (err) {
@@ -433,6 +494,7 @@ function tick(now) {
     }
     const result = renderer.render(renderOptions(v, dt));
     state.lastResult = result;
+    if (state.framesRendered % 15 === 0) updateSizing(result);
     state.lastResultDrawn = result.drawn;
     state.lastWebgl = !!result.webgl;
     state.lastEngine = result.engine;
@@ -444,6 +506,7 @@ function tick(now) {
     renderer.resize(state.photo.width, state.photo.height);
     const result = renderer.render(renderOptions(state.photo, 0));
     state.lastResult = result;
+    updateSizing(result);
     state.lastResultDrawn = result.drawn;
     state.lastWebgl = !!result.webgl;
     state.lastEngine = result.engine;
@@ -452,6 +515,118 @@ function tick(now) {
   }
 }
 
+// ---------------------------------------------------------------- size
+
+/** The garment kind for size charts. */
+function garmentKind(g) {
+  if (!g?.rig) return null;
+  if (g.rig.type === 'bottom') return g.rig.kind === 'trousers' ? 'trousers' : 'skirt';
+  return g.rig.type === 'dress' ? 'dress' : 'top';
+}
+
+/** Measurements and the recommended size from the last fitted body. */
+function updateSizing(result) {
+  const kind = garmentKind(state.garment);
+  if (!result?.body || !kind || !state.points) return;
+  const chart = chartFor(kind);
+  const scale = measureScale(result.body, state.points, state.mask, state.heightCm);
+  const measures = bodyMeasurements(result.body, scale.pxPerCm, null, { statureCm: state.heightCm });
+  const rec = recommendSize(measures, chart);
+  const prev = state.sizing;
+  state.sizing = { kind, chart, scale, measures, rec };
+  if (prev?.chart !== chart || prev?.rec.size !== rec.size) renderSizeChips();
+  renderSizeAdvice();
+}
+
+function renderSizeAdvice() {
+  const z = state.sizing;
+  if (!z) return;
+  const shown = state.sizeChoice !== 'auto' && z.chart.sizes[state.sizeChoice] ? state.sizeChoice : z.rec.size;
+  const fits = shown === z.rec.size ? z.rec.fits : fitVerdicts(z.measures, z.chart, shown);
+  const parts = Object.entries(fits).map(([m, v]) => `${m} ${v}`);
+  const how = {
+    stature: 'Measured from your height.',
+    head: 'From your height and head size: step back so your feet are in view for a better reading.',
+    shoulders: 'Rough: add your height for an accurate size.',
+  }[z.scale.method];
+  const strong = document.createElement('strong');
+  strong.textContent = shown;
+  els.sizeAdvice.replaceChildren(
+    document.createTextNode(state.sizeChoice === 'auto' ? 'Recommended size: ' : 'Showing size '),
+    strong,
+    document.createTextNode(` — ${parts.join(', ')}. ${how}`),
+  );
+  const m = z.measures;
+  els.sizeMeasures.textContent = ['chest', 'waist', 'hips']
+    .filter((k) => m[k])
+    .map((k) => `${k[0].toUpperCase()}${k.slice(1)} ≈ ${m[k]} cm`)
+    .join(' · ');
+}
+
+function renderSizeChips() {
+  const z = state.sizing;
+  els.sizeChips.replaceChildren();
+  if (!z) return;
+  if (state.sizeChoice !== 'auto' && !z.chart.sizes[state.sizeChoice]) state.sizeChoice = 'auto';
+  const chip = (value, label) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(state.sizeChoice === value));
+    b.dataset.size = value;
+    b.textContent = label;
+    if (value === z.rec.size) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = '★';
+      b.append(badge);
+      b.setAttribute('aria-label', `${label} (recommended)`);
+    }
+    b.addEventListener('click', () => {
+      state.sizeChoice = value;
+      for (const other of els.sizeChips.querySelectorAll('button')) other.setAttribute('aria-checked', String(other === b));
+      renderSizeAdvice();
+      state.dirty = true;
+    });
+    els.sizeChips.append(b);
+  };
+  chip('auto', 'Fit to me');
+  for (const name of Object.keys(z.chart.sizes)) chip(name, name);
+}
+
+/** Fit adjustments, with a chosen size drawn true to its measurements. */
+function sizedAdjust() {
+  const z = state.sizing;
+  if (state.sizeChoice === 'auto' || !z || !z.chart.sizes[state.sizeChoice]) return state.adjust;
+  const f = sizeFit(z.chart, state.sizeChoice, z.measures, z.scale.pxPerCm, z.kind);
+  return { ...state.adjust, easePx: f.easePx, lengthPx: f.lengthPx };
+}
+
+function loadHeight() {
+  try {
+    const v = Number(localStorage.getItem('mirrorfit.heightCm'));
+    if (v >= 120 && v <= 220) {
+      state.heightCm = v;
+      els.heightCm.value = String(v);
+    }
+  } catch {
+    // Storage unavailable: start empty.
+  }
+}
+
+els.heightCm.addEventListener('change', () => {
+  const v = Number(els.heightCm.value);
+  state.heightCm = v >= 120 && v <= 220 ? v : null;
+  try {
+    if (state.heightCm) localStorage.setItem('mirrorfit.heightCm', String(state.heightCm));
+    else localStorage.removeItem('mirrorfit.heightCm');
+  } catch {
+    // Not remembered; still used for now.
+  }
+  updateSizing(state.lastResult);
+  state.dirty = true;
+});
+loadHeight();
 // ---------------------------------------------------------------- snapshots
 
 const MAX_SNAPSHOTS = 12;
@@ -621,6 +796,12 @@ window.__mirrorfit = {
     model: state.tracker?.model || null,
     engine: state.lastEngine,
     hasMask: !!state.mask,
+    hasParsing: !!state.parsing,
+    sizing: state.sizing && { kind: state.sizing.kind, size: state.sizing.rec.size, fits: state.sizing.rec.fits, measures: state.sizing.measures, scale: state.sizing.scale, choice: state.sizeChoice },
+    light: renderer.light ? { x: +renderer.light.x.toFixed(2), y: +renderer.light.y.toFixed(2), z: +renderer.light.z.toFixed(2), confidence: +renderer.light.confidence.toFixed(2) } : null,
+    facing: state.lastResult?.body?.facing ?? null,
+    yaw: state.lastResult?.body ? Math.round((state.lastResult.body.yaw * 180) / Math.PI) : null,
+    parsingCounts: state.parsing && Array.from(state.parsing.labels.reduce((c, l) => (c[l]++, c), new Uint32Array(6))),
     trackerError: state.trackerError?.message || null,
     poseFrames: state.poseFrames,
     framesRendered: state.framesRendered,
@@ -629,7 +810,7 @@ window.__mirrorfit = {
     fps: state.fps,
     mirror: state.mirror,
     canvas: { width: els.canvas.width, height: els.canvas.height },
-    points: state.points && state.points.map((p) => ({ x: p.x, y: p.y, v: p.v })),
+    points: state.points && state.points.map((p) => ({ x: p.x, y: p.y, z: p.z, v: p.v })),
     garment: state.garment && {
       name: state.garmentMeta?.name,
       type: state.garment.type,
@@ -639,6 +820,19 @@ window.__mirrorfit = {
       via: state.garmentMeta?.via,
     },
   }),
+  /** The parsing labels as a colour image (debugging): a data URL, or null. */
+  parsingImage: () => {
+    const p = state.parsing;
+    if (!p) return null;
+    const colors = [[0, 0, 0], [140, 70, 20], [240, 180, 140], [255, 220, 0], [40, 120, 255], [200, 0, 200]];
+    const c = document.createElement('canvas');
+    c.width = p.width;
+    c.height = p.height;
+    const img = c.getContext('2d').createImageData(p.width, p.height);
+    for (let i = 0; i < p.labels.length; i++) img.data.set([...colors[p.labels[i]] ?? [255, 0, 0], 255], i * 4);
+    c.getContext('2d').putImageData(img, 0, 0);
+    return c.toDataURL();
+  },
   /** How well the last drawn garment sits on the person's mask (see core/fitReport.js). */
   fitReport: () => {
     const r = state.lastResult;

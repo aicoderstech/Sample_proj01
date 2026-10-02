@@ -18,6 +18,13 @@ export const GARMENT_IDS = [
 ];
 
 const cache = new Map();
+/** A fixture garment's pixels (background removed), as RGBA. */
+export function loadGarmentImage(id) {
+  const meta = JSON.parse(readFileSync(join(FIXTURES, `${id}.json`), 'utf8'));
+  const data = new Uint8ClampedArray(gunzipSync(readFileSync(join(FIXTURES, `${id}.rgba.gz`))));
+  return removeBackground({ data, width: meta.width, height: meta.height });
+}
+
 export function loadGarment(id) {
   if (cache.has(id)) return cache.get(id);
   const meta = JSON.parse(readFileSync(join(FIXTURES, `${id}.json`), 'utf8'));

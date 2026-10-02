@@ -5,20 +5,65 @@
 const VERTEX = `
 attribute vec2 aPos;
 attribute vec2 aUv;
+attribute vec4 aNrm;
+attribute vec4 aFold;
 uniform vec2 uRes;
 varying vec2 vUv;
+varying vec4 vNrm;
+varying vec4 vFold;
 void main() {
   vec2 clip = (aPos / uRes) * 2.0 - 1.0;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vUv = aUv;
+  vNrm = aNrm;
+  vFold = aFold;
 }`;
 
+// Fabric shading. Each vertex carries the surface normal of the body under
+// it (image-plane part; xy) and the image direction of the garment's x axis
+// (zw), and a fold field: drape (x, spare fabric hanging in vertical
+// folds), compression (y, folds across the compressed direction) and which
+// garment axis is compressed (z). Folds are a height field tied to the
+// fabric (garment pixel coordinates), so they move with it; they tilt the
+// normal, and the result is lit by the scene's light.
 const FRAGMENT = `
 precision mediump float;
 varying vec2 vUv;
+varying vec4 vNrm;
+varying vec4 vFold;
 uniform sampler2D uTex;
+uniform vec3 uLight;
+uniform vec2 uTexSize;
+uniform float uFoldWave;
+uniform float uLit;
 void main() {
-  gl_FragColor = texture2D(uTex, vUv);
+  vec4 c = texture2D(uTex, vUv);
+  if (uLit > 0.0 && c.a > 0.0) {
+    vec2 g = vUv * uTexSize;
+    vec2 tx = vNrm.zw;
+    float tl = length(tx);
+    tx = tl > 1e-4 ? tx / tl : vec2(1.0, 0.0);
+    vec2 ty = vec2(-tx.y, tx.x);
+    vec2 n2 = vNrm.xy;
+    // Drape: soft, irregular vertical folds; their depth varies along the
+    // fabric, so folds come and go instead of repeating evenly.
+    float ph = g.x / uFoldWave * 6.2832 + 1.3 * sin(g.y / (uFoldWave * 2.7)) + 0.9 * sin(g.x / (uFoldWave * 0.61) + 0.4);
+    float depth = 0.55 + 0.45 * sin(g.x / (uFoldWave * 2.3) + 1.7) * sin(g.x / (uFoldWave * 3.9) + g.y / (uFoldWave * 6.0));
+    n2 += tx * cos(ph) * 0.4 * vFold.x * depth;
+    // Compression: tighter folds across the compressed axis.
+    float axis = step(0.5, vFold.z);
+    float along = mix(g.x, g.y, axis);
+    float ph2 = along / (uFoldWave * 0.55) * 6.2832 + 0.9 * sin(mix(g.y, g.x, axis) / (uFoldWave * 1.6));
+    float cdepth = 0.6 + 0.4 * sin(mix(g.y, g.x, axis) / (uFoldWave * 0.9) + 0.8);
+    n2 += mix(tx, ty, axis) * cos(ph2) * 0.4 * vFold.y * cdepth;
+    float l2 = dot(n2, n2);
+    if (l2 > 0.94) n2 *= sqrt(0.94 / l2);
+    vec3 n = vec3(n2, sqrt(1.0 - dot(n2, n2)));
+    float amb = 0.5;
+    float s = (amb + (1.0 - amb) * max(dot(n, uLight), 0.0)) / (amb + (1.0 - amb) * uLight.z);
+    c.rgb *= clamp(s, 0.55, 1.15);
+  }
+  gl_FragColor = c;
 }`;
 
 // Post-process for a garment layer, run on its way to the screen:
@@ -27,10 +72,7 @@ void main() {
 //    outline with the colour of the nearest garment pixel; only inside the
 //    person mask and the garment's zone (never past the hem or into the
 //    neckline).
-//  - shade: rounding. Fabric wrapping round the body and arms turns away
-//    from the light towards its outline, so it darkens gently there. (The
-//    photo's own shading isn't used: it can't be told apart from the
-//    pattern of the clothes the person is wearing, which would show through.)
+// (Shading is done when the meshes are drawn: see FRAGMENT.)
 const QUAD_VERTEX = `
 attribute vec2 aPos;
 varying vec2 vUv;
@@ -48,16 +90,6 @@ uniform sampler2D uZone;
 uniform vec2 uTexel;
 uniform float uFill;
 uniform float uInset;
-uniform float uShade;
-uniform float uRound;
-// Garment, or the wearer's outline it is extended to (fill), at uv.
-float covered(vec2 uv) {
-  if (texture2D(uGarment, uv).a > 0.5) return 1.0;
-  if (uFill <= 0.0) return 0.0;
-  vec2 img = vec2(uv.x, 1.0 - uv.y);
-  return step(0.5, texture2D(uPerson, img).a) * step(0.5, texture2D(uZone, img).a);
-}
-
 void main() {
   // Image coordinates run top-down; the framebuffer texture bottom-up.
   vec2 img = vec2(vUv.x, 1.0 - vUv.y);
@@ -65,8 +97,8 @@ void main() {
   float person = texture2D(uPerson, img).a;
   if (uFill > 0.0 && g.a < 0.98 && person > 0.5 && texture2D(uZone, img).a > 0.5) {
     vec4 near = vec4(0.0);
-    for (int ring = 1; ring <= 4; ring++) {
-      float r = uFill * float(ring) / 4.0;
+    for (int ring = 1; ring <= 7; ring++) {
+      float r = uFill * float(ring) / 7.0;
       vec4 acc = vec4(0.0);
       for (int k = 0; k < 16; k++) {
         float a = float(k) * 0.3926991;
@@ -85,24 +117,6 @@ void main() {
       }
     }
     g = g + (1.0 - g.a) * near;
-  }
-  if (uShade > 0.0 && g.a > 0.0) {
-    // Fabric wraps round the body and arms: it turns away from the light
-    // towards its outline. How much of a disc around this pixel the garment
-    // covers (about 1 inside, 0.5 at an edge, less at a corner) gives that
-    // rounding at two scales.
-    float near = 0.0;
-    float far = 0.0;
-    for (int k = 0; k < 16; k++) {
-      float a = float(k) * 0.3926991 + 0.19635;
-      vec2 dir = vec2(cos(a), sin(a)) * uTexel;
-      near += covered(vUv + dir * uRound * 0.5);
-      far += covered(vUv + dir * uRound);
-    }
-    near /= 16.0;
-    far /= 16.0;
-    float s = mix(0.74, 1.0, smoothstep(0.38, 0.9, near)) * mix(0.9, 1.0, smoothstep(0.45, 0.95, far));
-    g.rgb *= mix(1.0, s, uShade);
   }
   gl_FragColor = g;
 }`;
@@ -150,7 +164,15 @@ export class GLMeshRenderer {
     gl.useProgram(program);
     this.aPos = gl.getAttribLocation(program, 'aPos');
     this.aUv = gl.getAttribLocation(program, 'aUv');
+    this.aNrm = gl.getAttribLocation(program, 'aNrm');
+    this.aFold = gl.getAttribLocation(program, 'aFold');
     this.uRes = gl.getUniformLocation(program, 'uRes');
+    this.uLight = gl.getUniformLocation(program, 'uLight');
+    this.uTexSize = gl.getUniformLocation(program, 'uTexSize');
+    this.uFoldWave = gl.getUniformLocation(program, 'uFoldWave');
+    this.uLit = gl.getUniformLocation(program, 'uLit');
+    this.nrmBuffer = gl.createBuffer();
+    this.foldBuffer = gl.createBuffer();
     this.posBuffer = gl.createBuffer();
     this.uvBuffer = gl.createBuffer();
     this.indexBuffer = gl.createBuffer();
@@ -165,7 +187,7 @@ export class GLMeshRenderer {
     if (!gl.getProgramParameter(post, gl.LINK_STATUS)) throw new Error('Shader link failed');
     this.post = post;
     this.postLoc = Object.fromEntries(
-      ['uGarment', 'uPerson', 'uZone', 'uTexel', 'uFill', 'uInset', 'uShade', 'uRound'].map((n) => [n, gl.getUniformLocation(post, n)]),
+      ['uGarment', 'uPerson', 'uZone', 'uTexel', 'uFill', 'uInset'].map((n) => [n, gl.getUniformLocation(post, n)]),
     );
     this.postPos = gl.getAttribLocation(post, 'aPos');
     this.quad = gl.createBuffer();
@@ -282,7 +304,12 @@ export class GLMeshRenderer {
    * @param {number} height
    * @param {{image: CanvasImageSource, rect: object, points: Float32Array, cols: number, rows: number}[]} meshes
    */
-  drawMeshes(width, height, meshes, post = null) {
+  /**
+   * @param {object[]} meshes  {image, rect, points, cols, rows, nrm?, fold?, foldWave?}
+   * @param {object|null} post see postProcess
+   * @param {{x:number,y:number,z:number}|null} light scene light (null: no shading)
+   */
+  drawMeshes(width, height, meshes, post = null, light = null) {
     const { gl, canvas } = this;
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
@@ -297,8 +324,25 @@ export class GLMeshRenderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.uniform2f(this.uRes, width, height);
+    if (light) gl.uniform3f(this.uLight, light.x, light.y, light.z);
     for (const m of meshes) {
       gl.bindTexture(gl.TEXTURE_2D, this.texture(m.image));
+      const lit = !!(light && m.nrm && m.fold);
+      gl.uniform1f(this.uLit, lit ? 1 : 0);
+      gl.uniform2f(this.uTexSize, m.image.width, m.image.height);
+      gl.uniform1f(this.uFoldWave, m.foldWave || 40);
+      for (const [loc, buf, data] of [[this.aNrm, this.nrmBuffer, m.nrm], [this.aFold, this.foldBuffer, m.fold]]) {
+        if (loc < 0) continue;
+        if (lit) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+          gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+          gl.enableVertexAttribArray(loc);
+          gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 0, 0);
+        } else {
+          gl.disableVertexAttribArray(loc);
+          gl.vertexAttrib4f(loc, 0, 0, 1, 0);
+        }
+      }
       const g = this.grid(m.cols, m.rows, m.rect, m.image.width, m.image.height);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, m.points, gl.DYNAMIC_DRAW);
@@ -318,8 +362,8 @@ export class GLMeshRenderer {
 
   /**
    * Draws the off-screen garment to the canvas through the post-process.
-   * @param {{person: HTMLCanvasElement, zone: HTMLCanvasElement, fill: number, inset?: number, shade: number, round: number}} post
-   *   fill / inset / round in pixels; shade 0..1
+   * @param {{person: HTMLCanvasElement, zone: HTMLCanvasElement, fill: number, inset?: number}} post
+   *   fill / inset in pixels
    */
   postProcess(width, height, post) {
     const { gl } = this;
@@ -340,9 +384,7 @@ export class GLMeshRenderer {
     gl.uniform2f(u.uTexel, 1 / width, 1 / height);
     gl.uniform1f(u.uFill, post.fill);
     gl.uniform1f(u.uInset, post.inset ?? post.fill * 0.5);
-    gl.uniform1f(u.uShade, post.shade);
-    gl.uniform1f(u.uRound, post.round);
-    gl.disableVertexAttribArray(this.aUv);
+    for (const loc of [this.aUv, this.aNrm, this.aFold]) if (loc >= 0) gl.disableVertexAttribArray(loc);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
     gl.enableVertexAttribArray(this.postPos);
     gl.vertexAttribPointer(this.postPos, 2, gl.FLOAT, false, 0, 0);

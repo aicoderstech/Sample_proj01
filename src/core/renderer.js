@@ -10,6 +10,12 @@ import { BodyFilter, measureBody } from './bodyModel.js';
 import { buildGrid, createGarmentMapper } from './fit.js';
 import { fitGarment } from './fit2.js';
 import { PART } from './garmentRig.js';
+import { rasterizeMeshes } from './raster.js';
+import { DEFAULT_LIGHT, estimateLight } from './lighting.js';
+import { undress } from './undress.js';
+
+// Pixels of other people in the picture (not one of the parser's labels).
+const LABEL_OTHER_PERSON = 9;
 import { GLMeshRenderer } from './glMesh.js';
 import { drawImageMesh } from './mesh.js';
 import { ClothSway } from './physics.js';
@@ -46,6 +52,80 @@ export function headOutline(points) {
     ry: (len * 4.35) / 2,
     angle: Math.atan2(d.y, d.x) - Math.PI / 2,
   };
+}
+
+/**
+ * Per-vertex surface data for lit fabric (see glMesh.js FRAGMENT):
+ *  nrm  - body surface normal (image plane) and the image direction of the
+ *         garment's x axis;
+ *  fold - drape (how far the garment stands off the body at this height,
+ *         hanging in vertical folds), compression (where the warp squeezes
+ *         the fabric: inside a bent elbow, a waist when leaning) and the
+ *         garment axis that is squeezed.
+ */
+export function fabricSurface(part, points, cols, rows, body, g) {
+  const n = (cols + 1) * (rows + 1);
+  const nrm = new Float32Array(n * 4);
+  const fold = new Float32Array(n * 4);
+  const { rect } = part;
+  const gxOf = (i) => rect.x + (rect.w * i) / cols;
+  const gyOf = (j) => rect.y + (rect.h * j) / rows;
+  const P = (i, j) => {
+    const k = (Math.min(rows, Math.max(0, j)) * (cols + 1) + Math.min(cols, Math.max(0, i))) * 2;
+    return { x: points[k], y: points[k + 1] };
+  };
+  // Local scale of the warp along each garment axis, and its median per part.
+  const sx = new Float32Array(n);
+  const sy = new Float32Array(n);
+  for (let j = 0; j <= rows; j++) {
+    for (let i = 0; i <= cols; i++) {
+      const k = j * (cols + 1) + i;
+      const ax = P(i + 1, j);
+      const bx = P(i - 1, j);
+      const ay = P(i, j + 1);
+      const by = P(i, j - 1);
+      const di = Math.min(cols, i + 1) - Math.max(0, i - 1);
+      const dj = Math.min(rows, j + 1) - Math.max(0, j - 1);
+      sx[k] = Math.hypot(ax.x - bx.x, ax.y - bx.y) / ((rect.w / cols) * di || 1);
+      sy[k] = Math.hypot(ay.x - by.x, ay.y - by.y) / ((rect.h / rows) * dj || 1);
+      const nv = part.normal ? part.normal(gxOf(i), gyOf(j)) : { x: 0, y: 0 };
+      const tl = Math.hypot(ax.x - bx.x, ax.y - bx.y) || 1;
+      nrm.set([nv.x, nv.y, (ax.x - bx.x) / tl, (ax.y - bx.y) / tl], k * 4);
+    }
+  }
+  const median = (a) => Float32Array.from(a).sort()[a.length >> 1] || 1;
+  const mx = median(sx);
+  const my = median(sy);
+  // Drape for the body part: per garment row, how far its edges stand off the body.
+  const a = g.analysis;
+  const drapeRow = new Float32Array(rows + 1);
+  if (part.part === PART.BODY && a?.rows) {
+    for (let j = 0; j <= rows; j++) {
+      const y = Math.round(gyOf(j));
+      const r = y - a.bbox.y;
+      if (r < 0 || r >= a.bbox.h || !a.rows.width[r]) continue;
+      let excess = 0;
+      for (const [x, side] of [[a.rows.left[r], 'imageLeft'], [a.rows.right[r], 'imageRight']]) {
+        const p = part.map(x, y);
+        const l = body.toLocal(p.x, p.y);
+        if (l.v < body.armpitV) continue;
+        excess += Math.max(0, Math.abs(l.u) - body.halfAt(Math.min(l.v, 1.3 * body.T), side)) / 2;
+      }
+      drapeRow[j] = Math.min(1, excess / (0.12 * body.sw));
+    }
+  }
+  for (let j = 0; j <= rows; j++) {
+    for (let i = 0; i <= cols; i++) {
+      const k = j * (cols + 1) + i;
+      const cx = sx[k] / mx;
+      const cy = sy[k] / my;
+      const squeeze = 1 - Math.min(cx, cy);
+      const comp = Math.min(1, Math.max(0, (squeeze - 0.15) / 0.3));
+      fold.set([drapeRow[j], comp, cx < cy ? 0 : 1, 0], k * 4);
+    }
+  }
+  // Folds about every eighth of the garment's width (in garment pixels).
+  return { nrm, fold, foldWave: Math.max(8, (a?.bbox.w ?? rect.w) / 9) };
 }
 
 export class TryOnRenderer {
@@ -134,7 +214,11 @@ export class TryOnRenderer {
    * @param {boolean} [o.temporal]                   smooth body measurements over frames (live video)
    * @param {boolean} [o.guides]                     draw the body tracking / fit guides
    * @param {'v1'|'v2'} [o.engine]                   fit engine (v2 unless forced or unavailable)
-   * @param {boolean|{fill?:number, shade?:number}} [o.realism]  edge fill + fabric shading
+   * @param {boolean|{fill?:number}} [o.realism]   edge fill (default on with WebGL and a mask)
+   * @param {boolean} [o.shading]                    lit fabric with folds (default on with WebGL)
+   * @param {object|null} [o.parsing]                clothes / skin labels (lib/humanParser.js)
+   * @param {boolean} [o.undress]                    take off old clothes the garment won't cover (default on with parsing)
+   * @param {boolean} [o.turn]                       wrap the garment round a turned body (default on)
    *                                                (default on with WebGL and a mask)
    */
   render(o) {
@@ -159,34 +243,39 @@ export class TryOnRenderer {
     const useV2 = g && o.engine !== 'v1' && g.rig && g.readable !== false;
 
     if (o.points && g && useV2) {
-      let body = measureBody(o.points, o.mask || null);
+      let body = measureBody(o.points, o.mask || null, o.parsing || null);
       if (o.temporal) body = this.bodyFilter.apply(body);
+      if (body && o.turn === false) body.yaw = 0;
       if (body) {
+        // Seen from behind: the garment's back.
+        const g = (body.facing === 'back' && o.garment.back?.()) || o.garment;
         const fit = fitGarment(body, g.rig, o.adjust, { followArms: o.followArms !== false });
         const meshes = fit.parts.map((part) => {
           const cols = useGl ? part.cols : Math.min(part.cols, 12);
           const rows = useGl ? part.rows : Math.min(part.rows, 16);
           const grid = buildGrid({ map: part.map, physicsWeight: (gy) => part.sway(part.rect.x + part.rect.w / 2, gy) }, part.rect, cols, rows);
           const pts = o.physics ? this.sway(part.part).step(grid.points, grid.weights, o.dt, body.sw) : grid.points;
-          return { part: part.part, image: g.partCanvases?.[part.part] ?? g.canvas, rect: part.rect, points: pts, cols, rows };
+          const surf = useGl && o.shading !== false ? fabricSurface(part, grid.points, cols, rows, body, g) : null;
+          return { part: part.part, image: g.partCanvases?.[part.part] ?? g.canvas, rect: part.rect, points: pts, cols, rows, ...surf };
         });
         if (!o.physics) this.sways.clear();
         if (o.matchLighting && o.source && this.frameCount++ % 10 === 0) this.updateLighting(o.source, body.frame);
         if (o.mask) this.updatePerson(o.mask);
-        // Realism pass (WebGL): edges extended to the wearer's outline, and
-        // the fabric shaded as it wraps round the body and arms.
+        this.light = o.shading === false ? null : this.sceneLight(o);
+        // Take off what the wearer has on where the new garment won't cover it.
+        if (o.parsing && o.undress !== false) this.undressPass(body, meshes, g, o);
+        // Realism pass (WebGL): edges extended to the wearer's outline.
         let post = useGl && o.mask && o.realism !== false ? this.realismInputs(body.sw) : null;
         if (post && typeof o.realism === 'object') {
-          // Tuning: fill as a fraction of the shoulder width, shade 0..1.
+          // Tuning: fill as a fraction of the shoulder width.
           if (o.realism.fill != null) post.fill = o.realism.fill * body.sw;
-          if (o.realism.shade != null) post.shade = o.realism.shade;
         }
         const bodyMeshes = meshes.filter((m) => !SLEEVES.has(m.part));
         const sleeveMeshes = meshes.filter((m) => SLEEVES.has(m.part));
         this.drawGarment(bodyMeshes, useGl, body.sw, o.matchLighting, post && { ...post, zone: this.drawZone(body, fit, g.rig, 'body') });
         this.drawFront(body, o.mask, o.points);
         this.drawGarment(sleeveMeshes, useGl, body.sw, o.matchLighting, post && { ...post, zone: this.drawZone(body, fit, g.rig, 'sleeves') });
-        result = { frame: body.frame, body, fit, drawn: true, webgl: useGl, engine: 'v2' };
+        result = { frame: body.frame, body, fit, garment: g, drawn: true, webgl: useGl, engine: 'v2' };
         if (o.guides) this.drawGuides(o.points, body, fit);
       } else {
         this.resetMotion();
@@ -220,7 +309,7 @@ export class TryOnRenderer {
     const h = this.canvas.height;
     let layer = this.layer;
     if (useGl) {
-      layer = this.gl.drawMeshes(w, h, meshes, post);
+      layer = this.gl.drawMeshes(w, h, meshes, post, this.light);
     } else {
       const lc = this.layerCtx;
       lc.setTransform(1, 0, 0, 1, 0, 0);
@@ -234,6 +323,136 @@ export class TryOnRenderer {
     if (matchLighting && Math.abs(this.brightness - 1) > 0.01) ctx.filter = `brightness(${this.brightness.toFixed(3)})`;
     ctx.drawImage(layer, 0, 0);
     ctx.restore();
+  }
+
+  /**
+   * Light direction for the fabric, from the shading of the wearer's face
+   * (core/lighting.js); recomputed when the parsing changes, eased for video.
+   */
+  sceneLight(o) {
+    if (!o.parsing) return this.light ?? DEFAULT_LIGHT;
+    if (o.parsing === this.lightFrom) return this.light;
+    this.lightFrom = o.parsing;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const k = Math.min(1, 240 / Math.max(w, h));
+    const lw = Math.max(1, Math.round(w * k));
+    const lh = Math.max(1, Math.round(h * k));
+    this.small ||= offscreen();
+    this.smallCtx ||= this.small.getContext('2d', { willReadFrequently: true });
+    this.small.width = lw;
+    this.small.height = lh;
+    this.smallCtx.drawImage(this.bg, 0, 0, lw, lh);
+    const pix = this.smallCtx.getImageData(0, 0, lw, lh).data;
+    const p = o.parsing;
+    const m = o.mask;
+    const labels = new Uint8Array(lw * lh);
+    const mine = new Uint8Array(lw * lh);
+    for (let y = 0; y < lh; y++) {
+      for (let x = 0; x < lw; x++) {
+        labels[y * lw + x] = p.labels[Math.min(p.height - 1, Math.floor(((y + 0.5) / lh) * p.height)) * p.width + Math.min(p.width - 1, Math.floor(((x + 0.5) / lw) * p.width))];
+        mine[y * lw + x] = !m || m.data[Math.min(m.height - 1, Math.floor(((y + 0.5) / lh) * m.height)) * m.width + Math.min(m.width - 1, Math.floor(((x + 0.5) / lw) * m.width))] >= 0.5 ? 1 : 0;
+      }
+    }
+    const est = estimateLight(pix, labels, lw, lh, mine);
+    const prev = this.light;
+    if (!prev || !o.temporal) return est;
+    const mixv = (a, b) => a + (b - a) * 0.3;
+    const x = mixv(prev.x, est.x);
+    const y = mixv(prev.y, est.y);
+    const z = mixv(prev.z, est.z);
+    const len = Math.hypot(x, y, z) || 1;
+    return { x: x / len, y: y / len, z: z / len, confidence: est.confidence };
+  }
+
+  /**
+   * Replaces the wearer's own clothes that the new garment leaves visible
+   * (see core/undress.js), on a reduced-resolution copy, and lays the patch
+   * over the background. Removed bulk is also taken out of the person mask,
+   * so the garment's edges stop at the body.
+   */
+  undressPass(body, meshes, g, o) {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const k = Math.min(1, 360 / Math.max(w, h));
+    const lw = Math.max(1, Math.round(w * k));
+    const lh = Math.max(1, Math.round(h * k));
+    this.small ||= offscreen();
+    this.smallCtx ||= this.small.getContext('2d', { willReadFrequently: true });
+    if (this.small.width !== lw || this.small.height !== lh) {
+      this.small.width = lw;
+      this.small.height = lh;
+      this.plate = null;
+    }
+    const sc = this.smallCtx;
+    sc.globalCompositeOperation = 'source-over';
+    sc.clearRect(0, 0, lw, lh);
+    sc.drawImage(this.bg, 0, 0, lw, lh);
+    const frame = sc.getImageData(0, 0, lw, lh);
+    const pix = frame.data;
+    const p = o.parsing;
+    const m = o.mask;
+    const labels = new Uint8Array(lw * lh);
+    for (let y = 0; y < lh; y++) {
+      const py = Math.min(p.height - 1, Math.floor(((y + 0.5) / lh) * p.height));
+      const my = Math.min(m.height - 1, Math.floor(((y + 0.5) / lh) * m.height));
+      for (let x = 0; x < lw; x++) {
+        const label = p.labels[py * p.width + Math.min(p.width - 1, Math.floor(((x + 0.5) / lw) * p.width))];
+        // Parsing labels everyone in the picture; only the person being
+        // dressed (the pose model's mask) is changed. Other people count as
+        // scenery.
+        const mine = m.data[my * m.width + Math.min(m.width - 1, Math.floor(((x + 0.5) / lw) * m.width))] >= 0.5;
+        labels[y * lw + x] = mine || label === 0 ? label : LABEL_OTHER_PERSON;
+      }
+    }
+    // Where the new garment will be.
+    const cover = rasterizeMeshes(
+      lw,
+      lh,
+      meshes.map((m) => ({
+        points: m.points.map((v) => v * k),
+        cols: m.cols,
+        rows: m.rows,
+        rect: m.rect,
+        opaque: (gx, gy) => {
+          const x = Math.round(gx);
+          const y = Math.round(gy);
+          const a = g.analysis;
+          if (!a || x < 0 || y < 0 || x >= a.width || y >= a.height) return false;
+          const i = y * a.width + x;
+          return a.mask[i] === 1 && (!g.rig || g.rig.parts[i] === m.part);
+        },
+      })),
+    );
+    // Live video: learn the background behind the person over time.
+    if (o.temporal) {
+      if (!this.plate) {
+        this.plate = new Float32Array(lw * lh * 3);
+        this.plateKnown = new Uint8Array(lw * lh);
+      }
+      for (let i = 0; i < lw * lh; i++) {
+        if (labels[i] !== 0) continue;
+        const a = this.plateKnown[i] ? 0.15 : 1;
+        for (let c = 0; c < 3; c++) this.plate[i * 3 + c] += (pix[i * 4 + c] - this.plate[i * 3 + c]) * a;
+        this.plateKnown[i] = 1;
+      }
+    }
+    const res = undress({ pix, labels, cover, w: lw, h: lh, k, body, type: g.rig?.type ?? g.type, plate: o.temporal ? this.plate : null, plateKnown: o.temporal ? this.plateKnown : null });
+    this.lastUndress = res ? { skin: res.skin, background: res.background } : null;
+    if (!res) return;
+    sc.putImageData(new ImageData(res.pix, lw, lh), 0, 0);
+    this.bgCtx.imageSmoothingQuality = 'high';
+    this.bgCtx.drawImage(this.small, 0, 0, w, h);
+    this.ctx.drawImage(this.small, 0, 0, w, h);
+    // Removed bulk is no longer part of the person.
+    if (res.background && this.person.width) {
+      const er = new Uint8ClampedArray(lw * lh * 4);
+      for (let i = 0; i < lw * lh; i++) if (res.removed[i]) er[i * 4 + 3] = 255;
+      sc.putImageData(new ImageData(er, lw, lh), 0, 0);
+      this.personCtx.globalCompositeOperation = 'destination-out';
+      this.personCtx.drawImage(this.small, 0, 0, this.person.width, this.person.height);
+      this.personCtx.globalCompositeOperation = 'source-over';
+    }
   }
 
   /** The person mask as an alpha image (mask resolution). */
@@ -256,7 +475,7 @@ export class TryOnRenderer {
 
   /** Inputs for the realism pass (sizes scale with the body). */
   realismInputs(sw) {
-    return { person: this.person, fill: sw * 0.07, shade: 0.8, round: sw * 0.16 };
+    return { person: this.person, fill: sw * 0.07 };
   }
 
   /**

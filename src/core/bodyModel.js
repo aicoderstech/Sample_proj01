@@ -9,7 +9,8 @@
 // can't be seen (arm in front, out of frame, no mask) the profile falls back
 // to the other side or to average proportions scaled to this person.
 import { computeBodyFrame, LM } from './body.js';
-import { clamp, lerp, normalize } from './vec.js';
+import { asIfFromFront, estimateOrientation } from './orientation.js';
+import { clamp, lerp, normalize, segDist } from './vec.js';
 
 // Average torso half-width profile, in units of half the shoulder-joint width.
 const PRIOR = [
@@ -29,18 +30,13 @@ const priorAt = (f) => {
 };
 
 const V_FROM = -0.3;
+// Human-parsing labels (lib/humanParser.js).
+const BODY_SKIN = 2;
+const CLOTHES = 4;
 const V_TO = 1.4;
 const V_STEP = 0.025;
 export const ARMPIT_V = 0.27;
 export const WAIST_V = 0.72;
-
-function segDist(p, a, b) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const l2 = dx * dx + dy * dy || 1;
-  const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1);
-  return Math.hypot(p.x - a.x - dx * t, p.y - a.y - dy * t);
-}
 
 const visible = (p) => p && p.v >= 0.5;
 
@@ -66,7 +62,19 @@ function plausible(pts) {
   return ls2 < 1e-9 || Math.abs(s.x * t.x + s.y * t.y) / ls2 <= 0.9;
 }
 
-export function measureBody(pts, mask = null) {
+/**
+ * @param pts      pixel landmarks
+ * @param mask     person segmentation (or null)
+ * @param parsing  optional per-pixel labels ({labels, width, height}, image
+ *                 size; see lib/humanParser.js): tells clothes from skin, so a
+ *                 bulky outfit isn't mistaken for a bigger body
+ */
+export function measureBody(pts, mask = null, parsing = null) {
+  if (!pts?.[LM.LEFT_SHOULDER] || !pts[LM.RIGHT_SHOULDER]) return null;
+  // Seen from behind, relabel the landmarks as if from the front: the
+  // garment's back is then fitted exactly like its front.
+  const orient = estimateOrientation(pts);
+  if (orient.facing === 'back') pts = asIfFromFront(pts);
   const frame = computeBodyFrame(pts);
   if (!frame || !plausible(pts)) return null;
   const sw = frame.shoulderWidth;
@@ -329,6 +337,75 @@ export function measureBody(pts, mask = null) {
   // the base of the neck outside its anatomical range.
   neckBaseV = clamp(neckBaseV, -0.18 * sw, -0.04 * sw);
 
+  // Clothing bulk. The shoulder joints are skeletal, so they fix the body's
+  // frame whatever is worn; a coat or loose top can make the outline far
+  // wider than the body inside it. Where the outline's edge is clothing and
+  // the width is beyond what this build allows, the excess is mostly taken
+  // to be fabric. The build comes from the visible neck (skin) when there is
+  // one, else from the outline itself within normal limits.
+  const labelAt = parsing
+    ? (p) => {
+        const x = Math.floor(p.x);
+        const y = Math.floor(p.y);
+        return x >= 0 && y >= 0 && x < parsing.width && y < parsing.height ? parsing.labels[y * parsing.width + x] : 0;
+      }
+    : null;
+  let build = clamp(priorScale, 0.9, 1.12);
+  let neckSkinHalf = null;
+  let bulk = 0;
+  const outline = { imageLeft: Float64Array.from(profile.imageLeft), imageRight: Float64Array.from(profile.imageRight) };
+  // Only when roughly facing the camera (or the back): turned, the outline
+  // legitimately includes the side of the body.
+  if (labelAt && orient.frontal) {
+    const widths = [];
+    for (let v = neckBaseV - 0.14 * T; v <= neckBaseV - 0.02 * T; v += 0.01 * T) {
+      const c = toImage(0, v);
+      if (labelAt(c) !== BODY_SKIN) continue;
+      const ax = axisAt(0);
+      let l = 0;
+      let r = 0;
+      while (l < sw && labelAt({ x: c.x - ax.x * l, y: c.y - ax.y * l }) === BODY_SKIN) l += 0.5;
+      while (r < sw && labelAt({ x: c.x + ax.x * r, y: c.y + ax.y * r }) === BODY_SKIN) r += 0.5;
+      widths.push((l + r) / 2);
+    }
+    if (widths.length >= 3) {
+      widths.sort((a, b) => a - b);
+      neckSkinHalf = widths[widths.length >> 1];
+      build = clamp(neckSkinHalf / (0.33 * half), 0.85, 1.35);
+    }
+    for (let i = 0; i < n; i++) {
+      const f = levels[i] / T;
+      if (f < 0.1 || f > 1.05) continue;
+      // Generous room for build variation: trimming a real body would be far
+      // worse than leaving some padding.
+      const cap = priorAt(f) * half * build * 1.2;
+      for (const [side, sgn] of [['imageLeft', -1], ['imageRight', 1]]) {
+        const w = profile[side][i];
+        if (w <= cap) continue;
+        // Just inside the edge: clothing, or the person's skin (a big body).
+        const inner = toImage(sgn * Math.max(0, w - 0.03 * sw), levels[i]);
+        if (labelAt(inner) !== CLOTHES) continue;
+        profile[side][i] = cap + (w - cap) * 0.2;
+        bulk = Math.max(bulk, (w - profile[side][i]) / sw);
+      }
+    }
+    // Sleeves and trouser legs can be bulky too: the limb itself is thinner.
+    for (const a of Object.values(arms)) {
+      a.rUOuter = a.rU;
+      a.rFOuter = a.rF;
+      const mid = { x: (a.chain[0].x + a.chain[1].x) / 2, y: (a.chain[0].y + a.chain[1].y) / 2 };
+      if (labelAt(mid) === CLOTHES) {
+        a.rU = Math.min(a.rU, 0.13 * sw * build);
+        a.rF = Math.min(a.rF, 0.1 * sw * build);
+      }
+    }
+    for (const l of Object.values(legs)) {
+      l.rOuter = l.r;
+      const mid = { x: (l.chain[0].x + l.chain[1].x) / 2, y: (l.chain[0].y + l.chain[1].y) / 2 };
+      if (labelAt(mid) === CLOTHES) l.r = Math.min(l.r, 0.19 * sw * build);
+    }
+  }
+
   // Shoulder edges: the outline along the shoulder line when it can be seen
   // (much steadier than the joint landmarks), else joint + upper-arm radius.
   // Armpits: where the underside of the arm meets the side of the torso.
@@ -459,7 +536,22 @@ export function measureBody(pts, mask = null) {
     shoulderTopV,
     arms,
     legs,
+    /** The measured outline before taking off clothing bulk. */
+    outlineHalfAt: (v, side) => {
+      const f = clamp((v / T - V_FROM) / V_STEP, 0, n - 1);
+      const i = Math.floor(f);
+      const j = Math.min(n - 1, i + 1);
+      return outline[side][i] + (outline[side][j] - outline[side][i]) * (f - i);
+    },
+    facing: orient.facing,
+    yaw: orient.yaw,
+    rawYaw: orient.rawYaw,
+    frontal: orient.frontal,
     hasMask: !!mask,
+    hasParsing: !!parsing,
+    build,
+    neckSkinHalf,
+    bulk,
     reliability: mask ? reliable / (2 * n) : 0,
   };
 }

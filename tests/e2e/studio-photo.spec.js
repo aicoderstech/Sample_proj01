@@ -128,6 +128,35 @@ test.describe('studio · photo mode (real body tracking)', () => {
     await expect.poll(async () => (await studioState(page)).garmentDrawn, { timeout: 45_000 }).toBe(true);
   });
 
+  test('parses clothes and skin, and recommends a size from the height', async ({ page }) => {
+    const errors = trackErrors(page);
+    await uploadPhoto(page);
+    await expect.poll(async () => (await studioState(page)).hasParsing, { timeout: 60_000 }).toBe(true);
+    const s = await studioState(page);
+    // Labels: clothes and skin both found on this person.
+    expect(s.parsingCounts[4]).toBeGreaterThan(5000);
+    expect(s.parsingCounts[2] + s.parsingCounts[3]).toBeGreaterThan(2000);
+    expect(s.light).not.toBeNull();
+    // Without a height the size is rough; with it, measured from stature.
+    await expect.poll(async () => (await studioState(page)).sizing?.scale.method).toBe('shoulders');
+    await page.locator('#height-cm').fill('178');
+    await page.locator('#height-cm').dispatchEvent('change');
+    await expect.poll(async () => (await studioState(page)).sizing?.scale.method).toBe('stature');
+    const sizing = (await studioState(page)).sizing;
+    expect(['S', 'M', 'L', 'XL']).toContain(sizing.size);
+    expect(sizing.measures.chest).toBeGreaterThan(70);
+    expect(sizing.measures.chest).toBeLessThan(130);
+    await expect(page.locator('#size-advice')).toContainText(`Recommended size: ${sizing.size}`);
+    // A bigger size is drawn bigger.
+    await page.locator('#size-chips button[data-size="XS"]').click();
+    await expect(page.locator('#size-advice')).toContainText('Showing size XS');
+    await page.waitForTimeout(300);
+    const small = await countPixels(page, CORAL);
+    await page.locator('#size-chips button[data-size="XXL"]').click();
+    await expect.poll(() => countPixels(page, CORAL)).toBeGreaterThan(small * 1.15);
+    expect(errors).toEqual([]);
+  });
+
   test('reports when there is no person in the photo', async ({ page }) => {
     // A product photo of a skirt: no person in it.
     await page.locator('#photo-input').setInputFiles('public/garments/pleated-skirt.svg');

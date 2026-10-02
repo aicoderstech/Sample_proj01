@@ -26,7 +26,7 @@ const LEG_PER_TORSO = 1.65; // hip-to-ankle length / torso length
 
 /** Normalized landmarks (0..1) -> pixel points with visibility `v`. */
 export function toPixels(landmarks, width, height) {
-  return landmarks.map((p) => ({ x: p.x * width, y: p.y * height, v: p.visibility ?? 1 }));
+  return landmarks.map((p) => ({ x: p.x * width, y: p.y * height, z: (p.z ?? 0) * width, v: p.visibility ?? 1 }));
 }
 
 const visible = (p, minVis) => p && p.v >= minVis && Number.isFinite(p.x) && Number.isFinite(p.y);

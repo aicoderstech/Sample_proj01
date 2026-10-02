@@ -16,6 +16,7 @@
 // divided by FLAT_TO_VISIBLE.
 import { limbSectionAt, PART } from './garmentRig.js';
 import { makeSpine } from './spine.js';
+import { turnAcross } from './orientation.js';
 import { fitTps } from './tps.js';
 import { clamp, smoothstep } from './vec.js';
 
@@ -40,7 +41,8 @@ function gridSize(rect, target) {
 /**
  * @param body   result of measureBody()
  * @param rig    result of buildGarmentRig()
- * @param adjust { size, length, offset } user fine-tuning (1, 1, 0 = automatic fit)
+ * @param adjust { size, length, offset } user fine-tuning (1, 1, 0 = automatic fit);
+ *               { easePx, lengthPx } draw a chosen size true to its measurements
  * @returns {{parts: object[], mapPoint: Function, scale: {kx:number, sLen:number}, pins: object[]}}
  */
 export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
@@ -49,7 +51,9 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
   const lengthK = (adjust.length ?? 1) * size;
   const vOff = (adjust.offset ?? 0) * body.T;
   const { sw, T } = body;
-  const e = sw * Math.max(0, FIT2.ease + 0.25 * (size - 1));
+  // Ease per side; a chosen size drawn true to its measurements sets it in
+  // pixels (adjust.easePx; a size too small sits tight on the body).
+  const e = adjust.easePx != null ? clamp(adjust.easePx, -0.01 * sw, 0.35 * sw) : sw * Math.max(0, FIT2.ease + 0.25 * (size - 1));
   const cx = rig.centerX;
   const kp = rig.kp;
   const L = 'imageLeft';
@@ -75,6 +79,8 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
     const bChest = half(body.armpitV, L) + half(body.armpitV, R);
     kx = (bChest + 2 * e) / gChest;
     sLen = (bChest / FIT2.flatToVisible / gChest) * lengthK;
+    // True length for a chosen size: shoulder to hem.
+    if (adjust.lengthPx) sLen = adjust.lengthPx / Math.max(1, kp.hemC.y - (kp.shoulderL.y + kp.shoulderR.y) / 2);
     const hasSleeves = Object.keys(rig.sleeves).length > 0;
     const straps = !hasSleeves && !!kp.neckL;
 
@@ -182,6 +188,8 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
     const bHip = half(T, L) + half(T, R);
     kx = (bHip + 2 * e) / gHip;
     sLen = (bHip / FIT2.flatToVisible / gHip) * lengthK;
+    // True length for a chosen size: waist to hem.
+    if (adjust.lengthPx) sLen = adjust.lengthPx / Math.max(1, (kp.hemC ?? kp.hemL).y - kp.waistL.y);
     const vW = T * (1 - FIT2.waistRise);
     vOfY = (y) => vW + (y - kp.waistL.y) * sLen;
     if (kp.crotch) {
@@ -217,14 +225,40 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
     }
   }
 
-  const tps = fitTps(src, dst, 1e-6);
+  const fitted = fitTps(src, dst, 1e-6);
+  // A turned body: the garment wraps round a turned torso (see turnAcross).
+  const yaw = body.yaw || 0;
+  const tps = !yaw
+    ? fitted
+    : (gx, gy) => {
+        const p = fitted(gx, gy);
+        const H = (side) => half(clamp(p.y, body.neckBaseV, 1.3 * T), side) + e;
+        const s = p.x / H(p.x < 0 ? L : R);
+        if (Math.abs(s) > 1) return p;
+        const t = turnAcross(s, yaw);
+        return { x: t * H(t < 0 ? L : R), y: p.y };
+      };
   const torsoMap = (gx, gy) => {
     const p = tps(gx, gy);
     return body.toImage(p.x, p.y);
   };
 
+  // Torso surface normal: the body as a rounded cylinder (facing sideways
+  // at its outline), turning upwards over the tops of the shoulders.
+  const torsoNormal = (gx, gy) => {
+    const p = tps(gx, gy);
+    const side = p.x < 0 ? L : R;
+    const across = clamp(p.x / Math.max(1, half(clamp(p.y, body.neckBaseV, 1.3 * T), side) + e), -1, 1) * 0.92;
+    const up = rig.type === 'bottom' ? 0 : -0.55 * clamp((body.armpitV * 0.6 - p.y) / Math.max(1, body.armpitV * 0.6 - body.neckBaseV), 0, 1);
+    const o = body.toImage(p.x, p.y);
+    const ax = body.toImage(p.x + 1, p.y);
+    const dn = body.toImage(p.x, p.y + 1);
+    return { x: (ax.x - o.x) * across + (dn.x - o.x) * up, y: (ax.y - o.y) * across + (dn.y - o.y) * up };
+  };
+
   // Limbs: sleeves along the arms, trouser legs along the legs.
   const limbMaps = {};
+  const limbNormals = {};
   const limbs = rig.type === 'bottom' ? rig.legs : rig.sleeves;
   for (const [side, limb] of Object.entries(limbs)) {
     const bodyLimb = rig.type === 'bottom' ? body.legs[side] : followArms ? body.arms[side] : null;
@@ -250,6 +284,22 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
     }
     const firstLen = Math.hypot(bodyLimb.chain[1].x - bodyLimb.chain[0].x, bodyLimb.chain[1].y - bodyLimb.chain[0].y);
     const radius = (sb) => (rig.type === 'bottom' ? bodyLimb.r * (1 - 0.25 * clamp(sb / (firstLen * 2), 0, 1)) : sb < firstLen ? bodyLimb.rU : bodyLimb.rF);
+    // Surface normal across the limb (a tube): image-plane part of the
+    // normal, from -1 at one side to +1 at the other.
+    limbNormals[side] = (gx, gy) => {
+      const dx = gx - limb.root.x;
+      const dy = gy - limb.root.y;
+      const s = dx * limb.dir.x + dy * limb.dir.y;
+      const t = dx * limb.nrm.x + dy * limb.nrm.y;
+      const frac = clamp((t - gA.t) / (gB.t - gA.t || 1), 0, 1);
+      const fromSeam = s - (gA.s + (gB.s - gA.s) * frac);
+      const sec = limbSectionAt(limb, clamp(s, 0, limb.length));
+      const across = clamp((t - (sec.lo + sec.hi) / 2) / Math.max(1, (sec.hi - sec.lo) / 2), -1, 1);
+      const sb = bA + (bB - bA) * frac + fromSeam * limbLen;
+      const p0 = spine.place(sb, 0, sw * 0.2);
+      const p1 = spine.place(sb, 1, sw * 0.2);
+      return { x: (p1.x - p0.x) * across * 0.92, y: (p1.y - p0.y) * across * 0.92 };
+    };
     limbMaps[side] = (gx, gy) => {
       const dx = gx - limb.root.x;
       const dy = gy - limb.root.y;
@@ -279,6 +329,7 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
       rect: torsoRect,
       ...gridSize(torsoRect, 520),
       map: torsoMap,
+      normal: torsoNormal,
       sway: (gx, gy) => smoothstep(startV, hemV, vOfY(gy)),
     });
   }
@@ -294,12 +345,15 @@ export function fitGarment(body, rig, adjust = {}, { followArms = true } = {}) {
       rect,
       ...gridSize(rect, 220),
       map,
+      normal: limbNormals[side] || torsoNormal,
       sway: (gx, gy) => (rig.type === 'bottom' ? 0 : 0.35 * smoothstep(0.6, 1, ((gx - limb.root.x) * limb.dir.x + (gy - limb.root.y) * limb.dir.y) / limb.length)),
     });
   }
 
   return {
     parts,
+    kx,
+    sLen,
     mapPoint: (gx, gy, part) => (parts.find((p) => p.part === part)?.map ?? torsoMap)(gx, gy),
     scale: { kx, sLen },
     pins: src.map((g, i) => ({ garment: g, image: body.toImage(dst[i].x, dst[i].y) })),

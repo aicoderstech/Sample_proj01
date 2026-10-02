@@ -1,6 +1,7 @@
 // Loads a garment image (URL, File, sample) and prepares it for fitting:
 // background removal, cropping and anchor analysis.
 import { analyzeGarment, defaultAnchors, deriveAnchors, guessGarmentType, removeBackground } from '../core/garment.js';
+import { makeGarmentBack } from '../core/garmentBack.js';
 import { buildGarmentRig } from '../core/garmentRig.js';
 
 const MAX_PROCESS_SIZE = 1024;
@@ -164,6 +165,7 @@ export function prepareGarment(source, { removeBg = true, tolerance = 42, type =
   const guessedType = guessGarmentType(analysis);
   const finalType = type === 'auto' ? guessedType : type;
   const rig = buildGarmentRig(analysis, finalType);
+  let back = null;
   return {
     canvas: out,
     rect: analysis.bbox,
@@ -176,5 +178,31 @@ export function prepareGarment(source, { removeBg = true, tolerance = 42, type =
     backgroundRemoved: processed.removed,
     backgroundNote: removeBg ? processed.reason || null : null,
     readable: true,
+    /** The garment seen from behind (made on first use; see core/garmentBack.js). */
+    back: () => (back ||= prepareBack(texture, rig, finalType)),
+  };
+}
+
+/** A prepared garment for the back view, from the front's texture. */
+function prepareBack(texture, frontRig, type) {
+  const b = makeGarmentBack(texture, frontRig);
+  const img = new ImageData(b.data, b.width, b.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = b.width;
+  canvas.height = b.height;
+  canvas.getContext('2d').putImageData(img, 0, 0);
+  const analysis = analyzeGarment(img);
+  if (!analysis) return null;
+  const rig = buildGarmentRig(analysis, type);
+  return {
+    canvas,
+    rect: analysis.bbox,
+    anchors: deriveAnchors(analysis, type),
+    analysis,
+    rig,
+    partCanvases: rig ? splitParts(img, rig.parts) : null,
+    type,
+    readable: true,
+    isBack: true,
   };
 }

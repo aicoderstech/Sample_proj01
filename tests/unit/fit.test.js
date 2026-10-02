@@ -44,7 +44,9 @@ describe('computeBodyFrame', () => {
   });
 
   it('converts normalized landmarks to pixels', () => {
-    expect(toPixels([{ x: 0.5, y: 0.25, visibility: 0.7 }], 640, 480)).toEqual([{ x: 320, y: 120, v: 0.7 }]);
+    expect(toPixels([{ x: 0.5, y: 0.25, visibility: 0.7 }], 640, 480)).toEqual([{ x: 320, y: 120, z: 0, v: 0.7 }]);
+    // Depth is on the same scale as x (image width).
+    expect(toPixels([{ x: 0.5, y: 0.25, z: -0.1, visibility: 1 }], 640, 480)[0].z).toBeCloseTo(-64);
   });
 });
 

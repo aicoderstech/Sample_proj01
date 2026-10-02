@@ -18,3 +18,12 @@ export const smoothstep = (e0, e1, x) => {
   const t = clamp((x - e0) / (e1 - e0), 0, 1);
   return t * t * (3 - 2 * t);
 };
+
+/** Distance from point p to the segment a-b. */
+export function segDist(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const l2 = dx * dx + dy * dy || 1;
+  const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1);
+  return Math.hypot(p.x - a.x - dx * t, p.y - a.y - dy * t);
+}

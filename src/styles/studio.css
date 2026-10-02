@@ -461,3 +461,68 @@ body.embed .panel {
     display: none;
   }
 }
+
+/* Size recommendation */
+.field .unit {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.field input[type='number'] {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+}
+
+.size-advice {
+  margin: 4px 0 10px;
+  font-size: 0.9rem;
+}
+
+.size-advice strong {
+  font-size: 1.05rem;
+}
+
+.size-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.size-chips button {
+  min-width: 44px;
+  min-height: 36px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 2px solid var(--border);
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.size-chips button[aria-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.size-chips button .badge {
+  margin-left: 4px;
+  color: var(--accent);
+  font-size: 0.72rem;
+}
+
+.size-measures {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}

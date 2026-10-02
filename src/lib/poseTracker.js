@@ -5,6 +5,7 @@
 // `?pose=mock` in tests) returns a synthetic person with a known outline.
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 import { mockBodyFrame, normalizedLandmarks } from '../core/mockBody.js';
+import { asIfFromFront } from '../core/orientation.js';
 
 const MODELS = {
   lite: {
@@ -33,7 +34,7 @@ export function hasSoftwareWebGL() {
   }
 }
 
-const sourceSize = (src) => ({
+export const sourceSize = (src) => ({
   width: src.videoWidth || src.naturalWidth || src.width,
   height: src.videoHeight || src.naturalHeight || src.height,
 });
@@ -44,7 +45,7 @@ const sourceSize = (src) => ({
  * of 4. Such images are copied, stretched by at most 3 pixels, onto a canvas
  * that is; landmarks are normalized, so they are unaffected.
  */
-function alignedInput(source, canvas) {
+export function alignedInput(source, canvas) {
   const { width, height } = sourceSize(source);
   const w = Math.ceil(width / 4) * 4;
   const h = Math.ceil(height / 4) * 4;
@@ -207,14 +208,23 @@ export async function createPoseTracker({ delegate, model = 'lite', maxPeople = 
   };
 }
 
-export function createMockTracker() {
+/**
+ * @param {{back?: boolean}} options back: the synthetic person seen from
+ *   behind (landmarks relabelled, face hidden)
+ */
+export function createMockTracker({ back = false } = {}) {
   const size = (src) => {
     const { width, height } = sourceSize(src);
     return { width: width || 640, height: height || 480 };
   };
   const detect = (src, t, motion) => {
     const body = mockBodyFrame(t, { ...size(src), motion });
-    return { landmarks: normalizedLandmarks(body), mask: body.mask };
+    let landmarks = normalizedLandmarks(body);
+    if (back) {
+      // From behind the person's left is on the image's left, and the face is hidden.
+      landmarks = asIfFromFront(landmarks).map((p, i) => (i <= 10 ? { ...p, visibility: 0.1 } : p));
+    }
+    return { landmarks, mask: body.mask };
   };
   return {
     backend: 'mock',
