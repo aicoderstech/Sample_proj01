@@ -1,8 +1,12 @@
 name: CI
 
+# A push or PR that changes only Markdown or docs/ starts no run: no test reads them. workflow_dispatch runs it by hand.
 on:
   push:
+    paths-ignore: ['**/*.md', 'docs/**']
   pull_request:
+    paths-ignore: ['**/*.md', 'docs/**']
+  workflow_dispatch:
 
 jobs:
   test:
